@@ -25,7 +25,7 @@ const items = [
 ] as const
 
 const mobilePrimaryItems = items.slice(0, 4)
-const mobileMoreItems = items.slice(4)
+const mobileMoreItems = items
 
 export function Layout() {
   const { t, i18n } = useTranslation()
