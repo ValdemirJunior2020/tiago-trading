@@ -1,0 +1,17 @@
+{
+  "name": "tiago-trading",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["client", "server", "shared"],
+  "scripts": {
+    "dev": "concurrently -n client,server -c auto npm:dev:client npm:dev:server",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "test": "npm run test -w shared && npm run test -w server && npm run test -w client",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
+    "lint": "npm run lint -w server && npm run lint -w client",
+    "test:e2e": "npm run test:e2e -w client"
+  },
+  "devDependencies": {"concurrently":"^9.2.1"}
+}

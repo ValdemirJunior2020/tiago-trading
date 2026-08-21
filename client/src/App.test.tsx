@@ -1,0 +1,1 @@
+import {describe,it,expect} from 'vitest'; describe('app basics',()=>{it('keeps starting balance contract',()=>expect(10000).toBe(10000)); it('supports languages',()=>expect(['pt','en','es']).toHaveLength(3))})

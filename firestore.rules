@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owner(uid) { return signedIn() && request.auth.uid == uid; }
+    function onlySafeProfileFields() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'displayName','preferredLanguage','themeColor','experienceLevel','onboardingCompleted','avatarUrl'
+      ]);
+    }
+    match /profiles/{uid} {
+      allow read: if owner(uid);
+      allow create: if owner(uid) && request.resource.data.uid == uid;
+      allow update: if owner(uid) && onlySafeProfileFields();
+      allow delete: if false;
+    }
+    match /preferences/{uid} {
+      allow read, create, update: if owner(uid);
+      allow delete: if false;
+    }
+    match /watchlists/{uid} { allow read, write: if owner(uid); }
+    match /journals/{uid}/entries/{entryId} { allow read, write: if owner(uid); }
+    match /educationProgress/{uid}/lessons/{lessonId} { allow read, write: if owner(uid); }
+    match /notifications/{uid}/items/{id} { allow read: if owner(uid); allow write: if false; }
+    match /wallets/{uid} { allow read: if owner(uid); allow write: if false; }
+    match /positions/{uid}/items/{id} { allow read: if owner(uid); allow write: if false; }
+    match /orders/{uid}/items/{id} { allow read: if owner(uid); allow write: if false; }
+    match /trades/{uid}/items/{id} { allow read: if owner(uid); allow write: if false; }
+    match /challengeProgress/{uid}/items/{id} { allow read: if owner(uid); allow write: if false; }
+    match /leaderboards/{period}/entries/{uid} { allow read: if signedIn(); allow write: if false; }
+    match /achievements/{uid}/items/{id} { allow read: if owner(uid); allow write: if false; }
+    match /marketSnapshots/{id} { allow read: if signedIn(); allow write: if false; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

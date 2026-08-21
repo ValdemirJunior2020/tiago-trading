@@ -1,0 +1,1 @@
+import {HelpCircle} from 'lucide-react'; export function Term({term,text}:{term:string;text:string}){return <span className="term" tabIndex={0}>{term}<HelpCircle size={14}/><span className="tip">{text}</span></span>}

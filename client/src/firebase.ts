@@ -1,0 +1,2 @@
+import {initializeApp} from 'firebase/app'; import {getAuth} from 'firebase/auth'; import {getFirestore} from 'firebase/firestore';
+const firebaseConfig={apiKey:'AIzaSyDTehc1giPqtEH75QfyspSXjyq4JGeN2G4',authDomain:'crud-happens.firebaseapp.com',projectId:'crud-happens',storageBucket:'crud-happens.appspot.com',messagingSenderId:'756855751499',appId:'1:756855751499:web:09494833b41e63f6ae5ece'}; export const firebaseApp=initializeApp(firebaseConfig); export const auth=getAuth(firebaseApp); export const firestore=getFirestore(firebaseApp);

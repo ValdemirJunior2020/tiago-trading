@@ -1,0 +1,1 @@
+export function Money({value,sign=true}:{value?:string|number;sign?:boolean}){const n=Number(value||0); return <span className={sign?(n>0?'positive':n<0?'negative':''):''}>{new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n)}</span>}
