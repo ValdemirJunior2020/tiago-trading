@@ -14,6 +14,7 @@ import {
   validateOrder,
   livePnL,
 } from '../trading/engine.js'
+import { refreshUserEquity } from '../trading/equity.js'
 
 export const tradeRouter = Router()
 
@@ -427,6 +428,10 @@ tradeRouter.get(
           })
         }
       }
+
+      // Keep the wallet's portfolio value and leaderboard return
+      // synchronized with the latest position prices.
+      await refreshUserEquity(uid)
 
       return res.json(rows)
     } catch (error) {

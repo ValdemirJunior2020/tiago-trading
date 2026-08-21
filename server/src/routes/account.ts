@@ -1,14 +1,15 @@
 import { Router } from 'express'
 import { FieldValue } from 'firebase-admin/firestore'
+
 import {
   requireAuth,
   type AuthedRequest,
 } from '../middleware/auth.js'
 import { db } from '../firebaseAdmin.js'
+import { refreshUserEquity } from '../trading/equity.js'
 
 export const accountRouter = Router()
 
-// EVERY account route below requires a valid Firebase user.
 accountRouter.use(requireAuth)
 
 accountRouter.post(
@@ -32,7 +33,6 @@ accountRouter.post(
         .doc(uid)
 
       await db().runTransaction(async (tx) => {
-        // Firestore requires ALL reads before ANY writes.
         const [walletSnap, profileSnap] =
           await Promise.all([
             tx.get(walletRef),
@@ -45,6 +45,8 @@ accountRouter.post(
             buyingPower: '10000',
             portfolioValue: '10000',
             totalPnL: '0',
+            unrealizedPnL: '0',
+            totalEquityPnL: '0',
             totalReturnPercent: '0',
             accountResets: 0,
             createdAt: FieldValue.serverTimestamp(),
@@ -109,6 +111,10 @@ accountRouter.get(
         .doc(uid)
         .collection('items')
 
+      // Refresh live/latest equity first so Dashboard, Portfolio and
+      // Leaderboard all work from the same portfolio value.
+      await refreshUserEquity(uid)
+
       const [
         walletSnap,
         profileSnap,
@@ -117,11 +123,7 @@ accountRouter.get(
       ] = await Promise.all([
         walletRef.get(),
         profileRef.get(),
-
-        positionsRef
-          .where('status', '==', 'open')
-          .get(),
-
+        positionsRef.where('status', '==', 'open').get(),
         tradesRef
           .orderBy('closedAt', 'desc')
           .limit(10)
@@ -168,23 +170,22 @@ accountRouter.post(
         })
       }
 
-      const batch = db().batch()
-
       const positionsRef = db()
         .collection('positions')
         .doc(uid)
         .collection('items')
 
-      const positionsSnap =
-        await positionsRef.get()
+      const walletRef = db()
+        .collection('wallets')
+        .doc(uid)
+
+      const positionsSnap = await positionsRef.get()
+
+      const batch = db().batch()
 
       positionsSnap.docs.forEach((position) => {
         batch.delete(position.ref)
       })
-
-      const walletRef = db()
-        .collection('wallets')
-        .doc(uid)
 
       batch.set(
         walletRef,
@@ -193,6 +194,8 @@ accountRouter.post(
           buyingPower: '10000',
           portfolioValue: '10000',
           totalPnL: '0',
+          unrealizedPnL: '0',
+          totalEquityPnL: '0',
           totalReturnPercent: '0',
           accountResets: FieldValue.increment(1),
           updatedAt: FieldValue.serverTimestamp(),
