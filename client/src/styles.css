@@ -6,3 +6,21 @@ html[data-theme=purple]{--accent:#9333ea;--accent-soft:#f3e8ff}html[data-theme=o
 
 /* Settings account session */
 .settingsMuted{color:var(--muted);line-height:1.5;margin:10px 0 16px}.logoutButton{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:9px;padding:10px 14px;font-weight:750;cursor:pointer}.logoutButton:hover{background:#fef2f2}.logoutButton:disabled{opacity:.6;cursor:not-allowed}
+
+/* Mobile hamburger navigation */
+.mobileTopBar{display:none}.mobileMenuLayer{display:none}
+@media(max-width:900px){
+.mobileTopBar{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:45}
+.mobileTopBar .logo{padding:0}.mobileTopBar .logoMark{width:38px;height:38px;border-radius:11px}.mobileTopBar .logoMark b{font-size:18px}.mobileTopBar .logo strong{font-size:12px}.mobileTopBar .logo small{font-size:9px}
+.mobileMenuButton,.mobileMenuClose{width:42px;height:42px;border:1px solid var(--border);border-radius:12px;display:grid;place-items:center;background:#fff;color:#0f172a;cursor:pointer;flex:0 0 auto}
+.mobileMenuLayer{position:fixed;inset:0;z-index:120;display:flex;justify-content:flex-end;background:#0f172a66;backdrop-filter:blur(3px)}
+.mobileDrawer{width:min(86vw,360px);height:100%;background:#fff;border-left:1px solid var(--border);padding:max(16px,env(safe-area-inset-top)) 16px max(22px,env(safe-area-inset-bottom));display:flex;flex-direction:column;box-shadow:-18px 0 50px #0f172a22;animation:mobileDrawerIn .2s ease-out}
+@keyframes mobileDrawerIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.mobileDrawerHead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+.mobileDrawerHead .logo{padding:0}.mobileDrawerNav{display:grid;gap:7px;padding:18px 0}
+.mobileDrawerNav a,.mobileDrawerLogout{min-height:50px;display:flex;align-items:center;gap:13px;padding:12px 13px;border-radius:12px;color:#475569;font-weight:750;font-size:14px}
+.mobileDrawerNav a:hover,.mobileDrawerNav a.active{background:var(--accent-soft);color:var(--accent)}
+.mobileDrawerLogout{margin-top:auto;width:100%;border:1px solid #fecaca;background:#fff;color:#b91c1c;cursor:pointer}
+.bottomNav{grid-template-columns:repeat(4,1fr)}
+}
+@media(max-width:560px){.mobileTopBar{padding-left:12px;padding-right:12px}.mobileDrawer{width:min(90vw,340px)}}
