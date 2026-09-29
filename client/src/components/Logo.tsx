@@ -1,1 +1,0 @@
-export function Logo(){return <div className="logo"><span className="logoMark"><b>T</b><i/></span><span><strong>TIAGO TRADING</strong><small>Real Market. Virtual Money.</small></span></div>}

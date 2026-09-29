@@ -1,0 +1,3 @@
+import type{StrategySignal}from'@profitmind/shared'
+export type Context={macroClose:number;macroSma20:number;close:number;volume:number;bbLower:number;bbUpper:number;rsi14:number;vma20:number}
+export function evaluate(c:Context):StrategySignal{if(c.macroClose>c.macroSma20&&c.close<c.bbLower&&c.rsi14<30&&c.volume>=c.vma20*1.5)return{decision:'LONG',confidence:1,reasons:['10m bullish','lower BB breach','RSI<30','volume spike']};if(c.macroClose<c.macroSma20&&c.close>c.bbUpper&&c.rsi14>70&&c.volume>=c.vma20*1.5)return{decision:'SHORT',confidence:1,reasons:['10m bearish','upper BB breach','RSI>70','volume spike']};return{decision:'WAIT',confidence:0,reasons:['Conditions not aligned']}}

@@ -1,1 +1,0 @@
-export function FreshnessBadge({value}:{value?:string}){return <span className={`freshness ${String(value||'').toLowerCase().replace(/\s/g,'-')}`}>{value||'UNKNOWN'}</span>}

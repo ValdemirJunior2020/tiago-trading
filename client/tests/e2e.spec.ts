@@ -1,1 +1,0 @@
-import {test,expect} from '@playwright/test'; test('auth entry renders',async({page})=>{await page.goto('/login'); await expect(page.getByText('TIAGO TRADING')).toBeVisible(); await expect(page.getByText('SIMULATOR — VIRTUAL MONEY')).toBeVisible()});

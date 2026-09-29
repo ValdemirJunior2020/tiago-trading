@@ -1,2 +1,0 @@
-import type {Candle,MarketType,Quote,SymbolSearchResult} from '@tiago/shared';
-export interface MarketDataProvider { name:string; configured():boolean; supports(market:MarketType):boolean; searchSymbols(query:string,market?:MarketType):Promise<SymbolSearchResult[]>; getQuote(symbol:string,market:MarketType):Promise<Quote>; getCandles(symbol:string,market:MarketType,timeframe:string,limit:number):Promise<Candle[]>; getMarketStatus(symbol:string,market:MarketType):Promise<{open:boolean;message:string}> }

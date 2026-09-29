@@ -1,2 +1,15 @@
-import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import morgan from 'morgan'; import rateLimit from 'express-rate-limit'; import {config} from './config.js'; import {accountRouter} from './routes/account.js'; import {marketRouter} from './routes/market.js'; import {tradeRouter} from './routes/trade.js'; import {leaderboardRouter} from './routes/leaderboard.js';
-const app=express(); app.use(helmet()); app.use(cors({origin:(origin,cb)=>{if(!origin||config.allowedOrigins.includes(origin))cb(null,true);else cb(new Error('Origin not allowed by CORS'))},credentials:true})); app.use(express.json({limit:'200kb'})); app.use(morgan('combined')); app.use('/api',rateLimit({windowMs:60_000,limit:180,standardHeaders:'draft-8',legacyHeaders:false})); app.get('/health',(_req,res)=>res.json({status:'ok'})); app.use('/api/account',accountRouter); app.use('/api/market',marketRouter); app.use('/api/trade',tradeRouter); app.use('/api/leaderboard',leaderboardRouter); app.use((err:any,_req:any,res:any,_next:any)=>{console.error(err); const msg=String(err?.message||'Unexpected error'); const status=msg.includes('provider not configured')?503:400; res.status(status).json({error:msg.includes('fetch')?'Market data temporarily unavailable.':msg})}); app.listen(config.port,()=>console.log(`Tiago Trading API on ${config.port}`));
+import express from'express'
+import cors from'cors'
+import helmet from'helmet'
+import{OandaReadOnly}from'./broker/OandaReadOnly.js'
+import{RiskManager}from'./risk/RiskManager.js'
+import{ollamaHealth,critique}from'./ollama.js'
+import{env}from'./config.js'
+const app=express(),broker=new OandaReadOnly(),risk=new RiskManager()
+app.use(helmet());app.use(cors({origin:env.CLIENT_ORIGIN}));app.use(express.json({limit:'32kb'}))
+app.get('/health',async(_q,res)=>res.json({status:'ok',ollama:await ollamaHealth(),safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%'},mode:'READ_ONLY_TRADE_PLANNER'}))
+app.get('/api/account',async(_q,res)=>{try{const a=await broker.account();risk.recordEquity(a.equity);res.json({...a,drawdown24h:risk.drawdown24h().toString(),locked:risk.locked()})}catch(e){res.status(503).json({error:e instanceof Error?e.message:String(e)})}})
+app.get('/api/positions',async(_q,res)=>{try{res.json(await broker.positions())}catch(e){res.status(503).json({error:e instanceof Error?e.message:String(e)})}})
+app.get('/api/quote/:symbol',async(req,res)=>{try{res.json(await broker.quote(req.params.symbol))}catch(e){res.status(503).json({error:e instanceof Error?e.message:String(e)})}})
+app.post('/api/plan',async(req,res)=>{try{const a=await broker.account(),q=await broker.quote(req.body.symbol),direction=req.body.direction==='short'?'short':'long',price=direction==='long'?q.ask:q.bid,plan=risk.plan(req.body.symbol,direction,price,a.equity,req.body.reasons||[]),ai=await critique({plan,quote:q}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'}));res.json({plan,ai,manualExecutionRequired:true})}catch(e){res.status(400).json({error:e instanceof Error?e.message:String(e)})}})
+app.listen(env.PORT,'127.0.0.1',()=>console.log(`ProfitMind Forex http://127.0.0.1:${env.PORT}`))
