@@ -56,6 +56,7 @@ function App(){
   const[loading,setLoading]=useState(false)
   const[sim,setSim]=useState<any>(null)
   const[notify,setNotify]=useState(false)
+  const[activityIndex,setActivityIndex]=useState(0)
   const x=copy[lang]
 
   const load=async()=>{
@@ -76,6 +77,7 @@ function App(){
   }
 
   useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[])
+  useEffect(()=>{const id=setInterval(()=>setActivityIndex(v=>(v+1)%5),1800);return()=>clearInterval(id)},[])
   useEffect(()=>{
     if(!notify||!sim?.lastSignal||typeof Notification==='undefined'||Notification.permission!=='granted')return
     const key='tiago-last-notified-signal'
@@ -87,6 +89,14 @@ function App(){
       body:(d.signal?.reasons||[]).join(' • ')||'Novo sinal do simulador'
     })
   },[sim?.lastSignal?.at,notify])
+
+  const activityFeed=[
+    lang==='pt'?'Lendo cotacoes da OANDA...':'Reading OANDA quotes...',
+    lang==='pt'?'Calculando Bollinger, RSI e volume...':'Calculating Bollinger, RSI and volume...',
+    lang==='pt'?'Comparando macro M10 com SMA20...':'Comparing M10 macro with SMA20...',
+    lang==='pt'?'Verificando risco e drawdown...':'Checking risk and drawdown...',
+    lang==='pt'?'Aguardando o proximo candle fechado...':'Waiting for the next closed candle...'
+  ]
 
   const drawdown=useMemo(()=>{
     const n=Number(account?.drawdown24h||0)*100
@@ -180,6 +190,14 @@ function App(){
       </section>
 
       <section className="panel simulator-panel">
+        <div className="tiago-live">
+          <div className="tiago-live-left">
+            <div className="scanner-orb"><BrainCircuit size={20}/><span className="scanner-ring"/></div>
+            <div><small>{lang==='pt'?'TIAGO TRABALHANDO AGORA':'TIAGO WORKING NOW'}</small><b>{activityFeed[activityIndex]}</b></div>
+          </div>
+          <div className="work-bars" aria-hidden="true"><i/><i/><i/><i/><i/><i/><i/><i/></div>
+          <span className="heartbeat"><i/>{lang==='pt'?'ATIVO':'ACTIVE'}</span>
+        </div>
         <div className="panel-head">
           <div><span className="kicker"><Activity size={15}/> SIMULADOR</span><h2>{lang==='pt'?'O que o Tiago está fazendo':'What Tiago is doing'}</h2><p>{lang==='pt'?'Você acompanha cada decisão e cada trade simulado aqui.':'Track every decision and simulated trade here.'}</p></div>
           <button className="lang" onClick={async()=>{
