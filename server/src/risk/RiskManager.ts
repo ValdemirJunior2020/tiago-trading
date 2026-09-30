@@ -1,4 +1,4 @@
-import Decimal from'decimal.js'
+import{Decimal}from'decimal.js'
 import{existsSync,mkdirSync,readFileSync,renameSync,writeFileSync}from'node:fs'
 import{dirname,resolve}from'node:path'
 import{fileURLToPath}from'node:url'
