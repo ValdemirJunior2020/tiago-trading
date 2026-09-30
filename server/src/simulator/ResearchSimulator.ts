@@ -29,6 +29,9 @@ type State={
  startedAt:string
  decisions:number
  signals:number
+ lastDecision:any|null
+ lastSignal:any|null
+ lastAction:any|null
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
@@ -36,7 +39,7 @@ const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
 const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
@@ -105,6 +108,7 @@ export class ResearchSimulator{
   this.state.balance=new Decimal(this.state.balance).plus(pnl).toString()
   this.state.realizedPL=new Decimal(this.state.realizedPL).plus(pnl).toString()
   this.state.position=null
+  this.state.lastAction={at:new Date().toISOString(),type:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:this.state.balance}
   this.simRisk.recordEquity(this.state.balance)
   this.save()
   logTrade({event:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:this.state.balance,reason,openedAt:p.openedAt})
@@ -124,7 +128,11 @@ export class ResearchSimulator{
   const context=strategyContext(m5,m10)
   const signal=evaluate(context)
   this.state.decisions++
-  if(signal.decision!=='WAIT')this.state.signals++
+  this.state.lastDecision={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
+  if(signal.decision!=='WAIT'){
+   this.state.signals++
+   this.state.lastSignal={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
+  }
 
   const spreadPct=this.simRisk.spreadPct(q.bid,q.ask).toString()
   const baseEvent={
@@ -174,6 +182,7 @@ export class ResearchSimulator{
   }
 
   this.state.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,openedAt:new Date().toISOString(),reasons:plan.reasons}
+  this.state.lastAction={at:new Date().toISOString(),type:'PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,reasons:plan.reasons,ai}
   this.simRisk.recordEquity(this.state.balance)
   this.save()
   logTrade({event:'PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,reasons:plan.reasons,ai})
