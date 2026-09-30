@@ -1,1 +1,21 @@
-{"name":"profitmind-forex","private":true,"version":"2.0.0","workspaces":["client","server","shared"],"scripts":{"dev":"concurrently -n server,client -c auto \"npm:dev:server\" \"npm:dev:client\"","dev:server":"npm run dev -w server","dev:client":"npm run dev -w client","build":"npm run build -w shared && npm run build -w server && npm run build -w client","test":"npm run test -w server"},"devDependencies":{"concurrently":"^9.2.1"}}
+{
+  "name": "profitmind-forex",
+  "private": true,
+  "version": "2.0.0",
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c auto \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "test": "npm run test -w server",
+    "verify": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
