@@ -4,9 +4,10 @@ import helmet from'helmet'
 import{OandaReadOnly}from'./broker/OandaReadOnly.js'
 import{RiskManager}from'./risk/RiskManager.js'
 import{ollamaHealth,critique}from'./ollama.js'
-import{env,BROKER_MODE}from'./config.js'
+import{env,BROKER_MODE,SIMULATOR_ENABLED}from'./config.js'
+import{ResearchSimulator}from'./simulator/ResearchSimulator.js'
 
-const app=express(),broker=new OandaReadOnly(),risk=new RiskManager()
+const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),simulator=new ResearchSimulator(broker)
 
 app.use(helmet())
 app.use(cors({origin:env.CLIENT_ORIGIN}))
@@ -24,7 +25,8 @@ app.get('/health',async(_q,res)=>{
     ollama,
     safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%',riskPerTrade:'0.25%',drawdownPersistence:true},
     mode:'READ_ONLY_TRADE_PLANNER',
-    brokerMode:BROKER_MODE
+    brokerMode:BROKER_MODE,
+    simulator:{enabled:SIMULATOR_ENABLED,state:simulator.snapshot()}
   })
 })
 
@@ -62,6 +64,8 @@ app.post('/api/plan',async(req,res)=>{
   }
 })
 
+app.get('/api/simulator',(_q,res)=>res.json({enabled:SIMULATOR_ENABLED,state:simulator.snapshot()}))
+
 app.post('/api/validate-fill',(req,res)=>{
   try{
     const direction=req.body.direction==='short'?'short':'long'
@@ -71,4 +75,7 @@ app.post('/api/validate-fill',(req,res)=>{
   }
 })
 
-app.listen(env.PORT,'127.0.0.1',()=>console.log(`ProfitMind Forex http://127.0.0.1:${env.PORT}`))
+app.listen(env.PORT,'127.0.0.1',()=>{
+ console.log(`ProfitMind Forex http://127.0.0.1:${env.PORT}`)
+ simulator.start()
+})
