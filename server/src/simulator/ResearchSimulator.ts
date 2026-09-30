@@ -130,7 +130,7 @@ export class ResearchSimulator{
     const candles=await this.broker.candles(symbol,timeframe,4)
     const key=`${symbol}:${timeframe}`
     const lastSeen=this.state.fimatheLastCandle[key]||''
-    const unseen=candles.filter(c=>c.time>lastSeen)
+    const unseen=candles.filter((c:{time:string})=>c.time>lastSeen)
     for(const candle of unseen){
      logFimatheMarket({
       event:'FIMATHE_RAW_CANDLE',
