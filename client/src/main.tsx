@@ -148,10 +148,19 @@ function App(){
           <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><b>{signedMoney(simProfit.realized)}</b></div>
           <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><b>{signedMoney(simProfit.unrealized)}</b></div>
         </div>
-        {sim?.position&&<div className="profit-position">
-          <span className="pulse-dot"/>
-          <div><small>{String(sim.position.symbol).replace('_','/')} • {String(sim.position.direction).toUpperCase()}</small><b>{lang==='pt'?'Entrada':'Entry'} {fmt(sim.position.entry)}</b></div>
-        </div>}
+        {sim?.position&&<>
+          <div className="profit-position">
+            <span className="pulse-dot"/>
+            <div><small>{String(sim.position.symbol).replace('_','/')} • {String(sim.position.direction).toUpperCase()}</small><b>{lang==='pt'?'Entrada':'Entry'} {fmt(sim.position.entry)}</b></div>
+          </div>
+          <div className="margin-mini">
+            <div><small>LOT SIZE</small><b>{sim.position.lotSize??'—'}</b></div>
+            <div><small>{lang==='pt'?'MARGEM EXIGIDA':'MARGIN REQUIRED'}</small><b>{money(sim.position.marginRequired)}</b></div>
+            <div><small>{lang==='pt'?'MARGEM DISPONÍVEL':'MARGIN AVAILABLE'}</small><b>{money(sim.position.marginAvailable)}</b></div>
+            <div><small>{lang==='pt'?'MARGEM DEPOIS':'MARGIN AFTER'}</small><b>{money(sim.position.marginAfterTrade)}</b></div>
+            <div><small>{lang==='pt'?'ALAVANCAGEM EFETIVA':'EFFECTIVE LEVERAGE'}</small><b>{sim.position.effectiveLeverage?sim.position.effectiveLeverage+':1':'—'}</b></div>
+          </div>
+        </>}
       </div>
 
       <div className="sidebar-bottom">
