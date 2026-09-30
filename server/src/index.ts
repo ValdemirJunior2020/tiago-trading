@@ -22,7 +22,7 @@ app.get('/health',async(_q,res)=>{
     status:account?'ok':'degraded',
     broker:account,
     ollama,
-    safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%'},
+    safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%',riskPerTrade:'0.25%',drawdownPersistence:true},
     mode:'READ_ONLY_TRADE_PLANNER'
   })
 })
@@ -56,6 +56,15 @@ app.post('/api/plan',async(req,res)=>{
     const plan=risk.plan(req.body.symbol,direction,price,a.equity,req.body.reasons||[])
     const ai=await critique({plan,quote:q}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'}))
     res.json({plan,ai,manualExecutionRequired:true})
+  }catch(e){
+    res.status(400).json({error:e instanceof Error?e.message:String(e)})
+  }
+})
+
+app.post('/api/validate-fill',(req,res)=>{
+  try{
+    const direction=req.body.direction==='short'?'short':'long'
+    res.json(risk.validateFill(String(req.body.referencePrice),String(req.body.fillPrice),direction))
   }catch(e){
     res.status(400).json({error:e instanceof Error?e.message:String(e)})
   }
