@@ -7,4 +7,10 @@ export class OandaReadOnly{
  async account():Promise<AccountState>{const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/summary`),a=b.account,bal=new Decimal(a.balance);return{balance:bal.toString(),equity:bal.plus(a.unrealizedPL||0).toString(),marginUsed:String(a.marginUsed||'0'),marginAvailable:String(a.marginAvailable||'0')}}
  async quote(symbol:string):Promise<BrokerQuote>{const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/pricing?instruments=${encodeURIComponent(symbol)}`),p=b.prices?.[0];if(!p)throw new Error('Quote unavailable');const bid=new Decimal(p.bids?.[0]?.price),ask=new Decimal(p.asks?.[0]?.price);return{symbol,bid:bid.toString(),ask:ask.toString(),mid:bid.plus(ask).div(2).toString(),timestamp:String(p.time)}}
  async positions(){const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`);return b.trades||[]}
+ async candles(symbol:string,granularity:'M5'|'M10',count=60){
+  const b=await this.get(`/v3/instruments/${encodeURIComponent(symbol)}/candles?price=M&granularity=${granularity}&count=${count}`)
+  return (b.candles||[]).filter((c:any)=>c.complete&&c.mid).map((c:any)=>({
+   time:String(c.time),open:Number(c.mid.o),high:Number(c.mid.h),low:Number(c.mid.l),close:Number(c.mid.c),volume:Number(c.volume||0)
+  }))
+ }
 }
