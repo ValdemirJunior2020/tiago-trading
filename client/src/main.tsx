@@ -103,6 +103,25 @@ function App(){
     return Number.isFinite(n)?n:0
   },[account])
 
+  const simProfit=useMemo(()=>{
+    const realized=Number(sim?.realizedPL||0)
+    const p=sim?.position
+    let unrealized=0
+    if(p){
+      const q=quotes[p.symbol]
+      const entry=Number(p.entry),units=Number(p.units)
+      const exit=p.direction==='long'?Number(q?.bid):Number(q?.ask)
+      if(Number.isFinite(entry)&&Number.isFinite(units)&&Number.isFinite(exit)){
+        unrealized=(p.direction==='long'?exit-entry:entry-exit)*units
+      }
+    }
+    const total=realized+unrealized
+    const currentBalance=Number(sim?.balance||0)
+    const initial=currentBalance-realized
+    const roi=initial>0?(total/initial)*100:0
+    return{realized,unrealized,total,roi}
+  },[sim,quotes])
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand-mini">
@@ -117,6 +136,23 @@ function App(){
         <Nav icon={<ShieldCheck size={18}/>} label={x.risk}/>
         <Nav icon={<BrainCircuit size={18}/>} label={x.ai}/>
       </nav>
+
+      <div className="sidebar-profit">
+        <div className="sidebar-profit-head">
+          <CircleDollarSign size={18}/>
+          <div><small>{lang==='pt'?'LUCRO SIMULADO':'SIMULATED PROFIT'}</small><span>{sim?.position?lang==='pt'?'posição aberta':'open position':lang==='pt'?'paper trading':'paper trading'}</span></div>
+        </div>
+        <strong className={simProfit.total>0?'profit-up':simProfit.total<0?'profit-down':''}>{signedMoney(simProfit.total)}</strong>
+        <div className="profit-roi"><span>{lang==='pt'?'Retorno total':'Total return'}</span><b>{signedPct(simProfit.roi)}</b></div>
+        <div className="profit-split">
+          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><b>{signedMoney(simProfit.realized)}</b></div>
+          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><b>{signedMoney(simProfit.unrealized)}</b></div>
+        </div>
+        {sim?.position&&<div className="profit-position">
+          <span className="pulse-dot"/>
+          <div><small>{String(sim.position.symbol).replace('_','/')} • {String(sim.position.direction).toUpperCase()}</small><b>{lang==='pt'?'Entrada':'Entry'} {fmt(sim.position.entry)}</b></div>
+        </div>}
+      </div>
 
       <div className="sidebar-bottom">
         <div className="mini-status"><span className={health?.broker?'dot on':'dot'}/><div><small>{x.broker}</small><b>{health?.broker?x.online:x.offline}</b></div></div>
@@ -260,5 +296,7 @@ function Metric({icon,label,value,meta}:{icon:React.ReactNode;label:string;value
 function RiskCard({label,value,detail}:{label:string;value:string;detail:string}){return <div className="risk-card"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
 function money(v:any){if(v==null||v==='')return'—';const n=Number(v);return Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n):String(v)}
 function fmt(v:any){const n=Number(v);if(!Number.isFinite(n))return'—';return n>=20?n.toFixed(3):n.toFixed(5)}
+function signedMoney(v:any){const n=Number(v);if(!Number.isFinite(n))return'—';const abs=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Math.abs(n));return n>0?`+${abs}`:n<0?`-${abs}`:abs}
+function signedPct(v:any){const n=Number(v);if(!Number.isFinite(n))return'—';return `${n>0?'+':''}${n.toFixed(2)}%`}
 
 createRoot(document.getElementById('root')!).render(<App/>)
