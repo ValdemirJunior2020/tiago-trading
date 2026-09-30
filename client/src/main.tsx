@@ -1,3 +1,209 @@
-import React,{useEffect,useState}from'react';import{createRoot}from'react-dom/client';import'./styles.css'
-type L='en'|'pt';const T={en:{sub:'Real-account Forex intelligence + risk engine',bal:'Balance',eq:'Equity',pos:'Open Positions',risk:'Locked Safety Rules',mode:'Manual execution required'},pt:{sub:'Inteligência Forex em conta real + motor de risco',bal:'Saldo',eq:'Patrimônio',pos:'Posições Abertas',risk:'Regras de Segurança Bloqueadas',mode:'Execução manual obrigatória'}}
-function App(){const[l,setL]=useState<L>('en'),[a,setA]=useState<any>(null),[p,setP]=useState<any[]>([]),[h,setH]=useState<any>(null),x=T[l];const load=async()=>{setH(await fetch('http://127.0.0.1:8787/health').then(r=>r.json()).catch(()=>null));setA(await fetch('http://127.0.0.1:8787/api/account').then(r=>r.ok?r.json():null).catch(()=>null));setP(await fetch('http://127.0.0.1:8787/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]))};useEffect(()=>{load();const i=setInterval(load,5000);return()=>clearInterval(i)},[]);return <main><header><div><h1>ProfitMind Forex</h1><p>{x.sub}</p></div><button onClick={()=>setL(l==='en'?'pt':'en')}>{l==='en'?'PT-BR':'EN'}</button></header><section className="grid"><Card n={x.bal} v={a?.balance??'—'}/><Card n={x.eq} v={a?.equity??'—'}/><Card n={x.pos} v={String(p.length)}/><Card n="Ollama" v={h?.ollama?'READY':'OFFLINE'}/></section><section className="panel"><h2>{x.risk}</h2><div className="risk"><b>Hard Stop 0.8%</b><b>Max Slippage 0.1%</b><b>24h Kill 3.0%</b></div><p>{x.mode}</p></section></main>}function Card({n,v}:{n:string;v:string}){return <div className="card"><span>{n}</span><strong>{v}</strong></div>}createRoot(document.getElementById('root')!).render(<App/>)
+import React,{useEffect,useMemo,useState}from'react'
+import{createRoot}from'react-dom/client'
+import{
+  Activity,BrainCircuit,ChartNoAxesCombined,ChevronRight,CircleDollarSign,
+  Gauge,Globe2,LayoutDashboard,LineChart,RefreshCw,ShieldCheck,
+  Sparkles,Target,WalletCards,Wifi,WifiOff
+}from'lucide-react'
+import'./styles.css'
+
+type Lang='en'|'pt'
+type Quote={symbol:string;bid:string;ask:string;mid:string;timestamp:string}
+
+const copy={
+  en:{
+    subtitle:'Local AI forex intelligence • real account risk control',
+    overview:'Overview',market:'Market',positions:'Positions',risk:'Risk Engine',ai:'AI Desk',
+    balance:'Balance',equity:'Equity',margin:'Available Margin',open:'Open Positions',
+    system:'System Status',broker:'Broker',ollama:'Ollama',riskState:'Risk Guard',
+    protected:'Protected',offline:'Offline',online:'Online',locked:'Locked',
+    watch:'Live Market Watch',watchSub:'Read-only broker quotes refresh automatically',
+    security:'Capital Protection',securitySub:'Deterministic limits the AI cannot loosen',
+    hardStop:'Hard Stop',slippage:'Max Slippage',kill:'24h Drawdown Kill',
+    exposure:'Per-trade risk',manual:'Manual execution required',
+    openTitle:'Open Positions',none:'No open positions right now.',
+    noData:'Waiting for broker data',updated:'Auto refresh every 5 seconds',
+    assistant:'Tiago AI Desk',assistantSub:'Local Ollama trade critic and market context',
+    waiting:'Waiting for Ollama',safe:'Risk rules remain active without AI.',
+    profit:'Profit mindset',profitSub:'Protect downside. Measure edge. Compound only what works.'
+  },
+  pt:{
+    subtitle:'Inteligência Forex com IA local • controle de risco em conta real',
+    overview:'Visão geral',market:'Mercado',positions:'Posições',risk:'Motor de Risco',ai:'Mesa de IA',
+    balance:'Saldo',equity:'Patrimônio',margin:'Margem Disponível',open:'Posições Abertas',
+    system:'Status do Sistema',broker:'Corretora',ollama:'Ollama',riskState:'Proteção de Risco',
+    protected:'Protegido',offline:'Offline',online:'Online',locked:'Bloqueado',
+    watch:'Radar do Mercado',watchSub:'Cotações read-only da corretora atualizadas automaticamente',
+    security:'Proteção de Capital',securitySub:'Limites determinísticos que a IA não pode afrouxar',
+    hardStop:'Hard Stop',slippage:'Slippage Máximo',kill:'Drawdown 24h',
+    exposure:'Risco por trade',manual:'Execução manual obrigatória',
+    openTitle:'Posições Abertas',none:'Nenhuma posição aberta agora.',
+    noData:'Aguardando dados da corretora',updated:'Atualiza automaticamente a cada 5 segundos',
+    assistant:'Mesa de IA do Tiago',assistantSub:'Ollama local como crítico de trades e contexto de mercado',
+    waiting:'Aguardando Ollama',safe:'As regras de risco continuam ativas sem IA.',
+    profit:'Mentalidade de lucro',profitSub:'Proteja o downside. Meça a vantagem. Só escale o que funciona.'
+  }
+}
+
+const PAIRS=['EUR_USD','GBP_USD','USD_JPY']
+
+function App(){
+  const[lang,setLang]=useState<Lang>('pt')
+  const[health,setHealth]=useState<any>(null)
+  const[account,setAccount]=useState<any>(null)
+  const[positions,setPositions]=useState<any[]>([])
+  const[quotes,setQuotes]=useState<Record<string,Quote>>({})
+  const[loading,setLoading]=useState(false)
+  const x=copy[lang]
+
+  const load=async()=>{
+    setLoading(true)
+    try{
+      const[h,a,p,...qs]=await Promise.all([
+        fetch('http://127.0.0.1:8787/health').then(r=>r.json()).catch(()=>null),
+        fetch('http://127.0.0.1:8787/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch('http://127.0.0.1:8787/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
+        ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8787/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
+      ])
+      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[])
+      const next:Record<string,Quote>={}
+      qs.forEach((q:any)=>{if(q?.symbol)next[q.symbol]=q})
+      setQuotes(next)
+    }finally{setLoading(false)}
+  }
+
+  useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[])
+
+  const drawdown=useMemo(()=>{
+    const n=Number(account?.drawdown24h||0)*100
+    return Number.isFinite(n)?n:0
+  },[account])
+
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <div className="brand-mini">
+        <img src="/logo.png" alt="Tiago Bot" onError={e=>{e.currentTarget.style.display='none'}}/>
+        <div><strong>Tiago Bot</strong><span>FOREX</span></div>
+      </div>
+
+      <nav>
+        <Nav icon={<LayoutDashboard size={18}/>} label={x.overview} active/>
+        <Nav icon={<ChartNoAxesCombined size={18}/>} label={x.market}/>
+        <Nav icon={<Target size={18}/>} label={x.positions}/>
+        <Nav icon={<ShieldCheck size={18}/>} label={x.risk}/>
+        <Nav icon={<BrainCircuit size={18}/>} label={x.ai}/>
+      </nav>
+
+      <div className="sidebar-bottom">
+        <div className="mini-status"><span className={health?.broker?'dot on':'dot'}/><div><small>{x.broker}</small><b>{health?.broker?x.online:x.offline}</b></div></div>
+        <div className="mini-status"><span className={health?.ollama?'dot on':'dot'}/><div><small>{x.ollama}</small><b>{health?.ollama?x.online:x.offline}</b></div></div>
+      </div>
+    </aside>
+
+    <main className="content">
+      <header className="topbar">
+        <div className="hero-brand">
+          <div className="logo-frame"><img src="/logo.png" alt="Tiago Bot Forex" onError={e=>{e.currentTarget.style.display='none'}}/></div>
+          <div>
+            <div className="eyebrow"><Sparkles size={14}/> PROFITMIND ENGINE</div>
+            <h1>Tiago <span>Bot</span></h1>
+            <p>{x.subtitle}</p>
+          </div>
+        </div>
+
+        <div className="top-actions">
+          <button className="refresh" onClick={load} aria-label="Refresh"><RefreshCw size={17} className={loading?'spin':''}/></button>
+          <button className="lang" onClick={()=>setLang(lang==='en'?'pt':'en')}><Globe2 size={16}/>{lang==='en'?'PT-BR':'EN'}</button>
+        </div>
+      </header>
+
+      <section className="status-strip">
+        <div><span className={health?.broker?'signal good':'signal bad'}>{health?.broker?<Wifi size={15}/>:<WifiOff size={15}/>}</span><small>{x.broker}</small><b>{health?.broker?x.online:x.offline}</b></div>
+        <div><span className={health?.ollama?'signal good':'signal bad'}><BrainCircuit size={15}/></span><small>{x.ollama}</small><b>{health?.ollama?x.online:x.offline}</b></div>
+        <div><span className={account?.locked?'signal bad':'signal good'}><ShieldCheck size={15}/></span><small>{x.riskState}</small><b>{account?.locked?x.locked:x.protected}</b></div>
+        <div className="strip-note">{x.updated}</div>
+      </section>
+
+      <section className="metrics">
+        <Metric icon={<WalletCards/>} label={x.balance} value={money(account?.balance)} meta="Broker balance"/>
+        <Metric icon={<Activity/>} label={x.equity} value={money(account?.equity)} meta={`24h DD ${drawdown.toFixed(2)}%`}/>
+        <Metric icon={<Gauge/>} label={x.margin} value={money(account?.marginAvailable)} meta="Real-time"/>
+        <Metric icon={<Target/>} label={x.open} value={String(positions.length)} meta="Live account"/>
+      </section>
+
+      <section className="main-grid">
+        <div className="panel market-panel">
+          <div className="panel-head">
+            <div><span className="kicker"><LineChart size={15}/>{x.market}</span><h2>{x.watch}</h2><p>{x.watchSub}</p></div>
+            <span className="live-pill"><i/> LIVE</span>
+          </div>
+          <div className="quotes">
+            {PAIRS.map(pair=>{
+              const q=quotes[pair]
+              const spread=q?Math.abs(Number(q.ask)-Number(q.bid)):null
+              return <div className="quote-row" key={pair}>
+                <div className="pair"><span>{pair.slice(0,3)}</span><i>/</i><span>{pair.slice(4)}</span></div>
+                <div className="quote-price"><small>MID</small><strong>{q?fmt(q.mid):'—'}</strong></div>
+                <div className="quote-side"><small>BID</small><b>{q?fmt(q.bid):'—'}</b></div>
+                <div className="quote-side"><small>ASK</small><b>{q?fmt(q.ask):'—'}</b></div>
+                <div className="spread"><small>SPREAD</small><b>{spread==null?'—':spread.toFixed(pair==='USD_JPY'?3:5)}</b></div>
+              </div>
+            })}
+          </div>
+        </div>
+
+        <div className="panel ai-panel">
+          <div className="orb"><BrainCircuit size={30}/></div>
+          <span className="kicker">{x.ai}</span>
+          <h2>{x.assistant}</h2>
+          <p>{x.assistantSub}</p>
+          <div className={health?.ollama?'ai-state online':'ai-state'}>
+            <span className="pulse"/><div><small>{health?.ollama?x.online:x.waiting}</small><b>{health?.ollama?'LOCAL MODEL READY':'OLLAMA OFFLINE'}</b></div>
+          </div>
+          <div className="ai-note">{x.safe}</div>
+        </div>
+      </section>
+
+      <section className="panel protection">
+        <div className="panel-head">
+          <div><span className="kicker"><ShieldCheck size={15}/>{x.risk}</span><h2>{x.security}</h2><p>{x.securitySub}</p></div>
+          <span className="locked-pill"><ShieldCheck size={14}/> LOCKED</span>
+        </div>
+        <div className="risk-grid">
+          <RiskCard label={x.hardStop} value="0.8%" detail="Fill-based"/>
+          <RiskCard label={x.slippage} value="0.1%" detail="Hard ceiling"/>
+          <RiskCard label={x.kill} value="3.0%" detail="Rolling 24h"/>
+          <RiskCard label={x.exposure} value="0.25%" detail="Capital at risk"/>
+        </div>
+        <div className="risk-footer"><ShieldCheck size={16}/><span>{x.manual}</span><b>{drawdown.toFixed(2)}% / 3.00%</b></div>
+      </section>
+
+      <section className="bottom-grid">
+        <div className="panel positions-panel">
+          <div className="panel-head compact"><div><span className="kicker"><Target size={15}/>{x.positions}</span><h2>{x.openTitle}</h2></div><span className="count">{positions.length}</span></div>
+          {positions.length===0?<div className="empty-state"><div className="empty-icon"><Target size={24}/></div><b>{x.none}</b><span>{x.noData}</span></div>:positions.map((p:any)=><div className="position-row" key={p.id||p.tradeId||JSON.stringify(p)}>
+            <div><b>{p.instrument||p.symbol||'—'}</b><small>{p.currentUnits||p.units||''}</small></div><ChevronRight size={18}/>
+          </div>)}
+        </div>
+
+        <div className="panel mindset">
+          <div className="mind-icon"><CircleDollarSign size={27}/></div>
+          <span className="kicker">PROFITMIND</span>
+          <h2>{x.profit}</h2>
+          <p>{x.profitSub}</p>
+          <div className="rule-line"><span>01</span><b>Protect capital first</b></div>
+          <div className="rule-line"><span>02</span><b>Only trade measurable edge</b></div>
+          <div className="rule-line"><span>03</span><b>Compound proven behavior</b></div>
+        </div>
+      </section>
+    </main>
+  </div>
+}
+
+function Nav({icon,label,active=false}:{icon:React.ReactNode;label:string;active?:boolean}){return <button className={active?'nav-item active':'nav-item'}>{icon}<span>{label}</span></button>}
+function Metric({icon,label,value,meta}:{icon:React.ReactNode;label:string;value:string;meta:string}){return <div className="metric"><div className="metric-icon">{icon}</div><div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{meta}</small></div></div>}
+function RiskCard({label,value,detail}:{label:string;value:string;detail:string}){return <div className="risk-card"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
+function money(v:any){if(v==null||v==='')return'—';const n=Number(v);return Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n):String(v)}
+function fmt(v:any){const n=Number(v);if(!Number.isFinite(n))return'—';return n>=20?n.toFixed(3):n.toFixed(5)}
+
+createRoot(document.getElementById('root')!).render(<App/>)
