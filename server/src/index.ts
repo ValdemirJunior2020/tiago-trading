@@ -4,7 +4,7 @@ import helmet from'helmet'
 import{OandaReadOnly}from'./broker/OandaReadOnly.js'
 import{RiskManager}from'./risk/RiskManager.js'
 import{ollamaHealth,critique}from'./ollama.js'
-import{env}from'./config.js'
+import{env,BROKER_MODE}from'./config.js'
 
 const app=express(),broker=new OandaReadOnly(),risk=new RiskManager()
 
@@ -23,7 +23,8 @@ app.get('/health',async(_q,res)=>{
     broker:account,
     ollama,
     safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%',riskPerTrade:'0.25%',drawdownPersistence:true},
-    mode:'READ_ONLY_TRADE_PLANNER'
+    mode:'READ_ONLY_TRADE_PLANNER',
+    brokerMode:BROKER_MODE
   })
 })
 
