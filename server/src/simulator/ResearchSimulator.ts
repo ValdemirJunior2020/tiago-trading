@@ -8,7 +8,7 @@ import{evaluate}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
 import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS}from'../config.js'
-import{logSimulator,logTrade}from'./logger.js'
+import{logSimulator,logTrade,logFimatheMarket}from'./logger.js'
 import type{Direction}from'@profitmind/shared'
 
 type Position={
@@ -32,6 +32,7 @@ type State={
  lastDecision:any|null
  lastSignal:any|null
  lastAction:any|null
+ fimatheLastCandle:Record<string,string>
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
@@ -39,7 +40,7 @@ const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
 const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
@@ -112,6 +113,43 @@ export class ResearchSimulator{
   this.simRisk.recordEquity(this.state.balance)
   this.save()
   logTrade({event:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:this.state.balance,reason,openedAt:p.openedAt})
+ }
+
+ private async captureFimatheMarket(symbol:string){
+  const now=new Date()
+  const minute=now.getUTCMinutes()
+  const hour=now.getUTCHours()
+  const due:Array<'M1'|'M5'|'M15'|'D'|'W'>=['M1']
+  if(minute%5<=1)due.push('M5')
+  if(minute%15<=1)due.push('M15')
+  if(minute===0)due.push('D')
+  if(minute===0&&hour%6===0)due.push('W')
+
+  for(const timeframe of due){
+   try{
+    const candles=await this.broker.candles(symbol,timeframe,4)
+    const key=`${symbol}:${timeframe}`
+    const lastSeen=this.state.fimatheLastCandle[key]||''
+    const unseen=candles.filter(c=>c.time>lastSeen)
+    for(const candle of unseen){
+     logFimatheMarket({
+      event:'FIMATHE_RAW_CANDLE',
+      symbol,
+      timeframe,
+      candle,
+      framework:{
+       status:'SHADOW_RESEARCH',
+       automatedEntry:false,
+       sourceSupportedConcepts:['zona neutra','canal de referencia','linha de 50%','nivel 1','nivel 2','stop fora da caixinha'],
+       note:'Raw OHLCV is preserved so finalized Fimathe rules can be replayed later without inventing missing channel math.'
+      }
+     })
+     this.state.fimatheLastCandle[key]=candle.time
+    }
+   }catch(e){
+    logFimatheMarket({event:'FIMATHE_CAPTURE_ERROR',symbol,timeframe,error:e instanceof Error?e.message:String(e)})
+   }
+  }
  }
 
  private async processSymbol(symbol:string){
@@ -196,7 +234,7 @@ export class ResearchSimulator{
    await this.ensureBalance()
    await this.manageOpen()
    for(const symbol of SIMULATOR_PAIRS){
-    try{await this.processSymbol(symbol)}
+    try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
     catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
    }
    this.save()
