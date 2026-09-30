@@ -12,7 +12,7 @@ type Quote={symbol:string;bid:string;ask:string;mid:string;timestamp:string}
 
 const copy={
   en:{
-    subtitle:'Local AI forex intelligence • real account risk control',
+    subtitle:'Local AI forex intelligence • broker risk control',
     overview:'Overview',market:'Market',positions:'Positions',risk:'Risk Engine',ai:'AI Desk',
     balance:'Balance',equity:'Equity',margin:'Available Margin',open:'Open Positions',
     system:'System Status',broker:'Broker',ollama:'Ollama',riskState:'Risk Guard',
@@ -28,7 +28,7 @@ const copy={
     profit:'Profit mindset',profitSub:'Protect downside. Measure edge. Compound only what works.'
   },
   pt:{
-    subtitle:'Inteligência Forex com IA local • controle de risco em conta real',
+    subtitle:'Inteligência Forex com IA local • controle de risco da corretora',
     overview:'Visão geral',market:'Mercado',positions:'Posições',risk:'Motor de Risco',ai:'Mesa de IA',
     balance:'Saldo',equity:'Patrimônio',margin:'Margem Disponível',open:'Posições Abertas',
     system:'Status do Sistema',broker:'Corretora',ollama:'Ollama',riskState:'Proteção de Risco',
@@ -112,6 +112,7 @@ function App(){
         </div>
 
         <div className="top-actions">
+          <span style={{padding:'8px 12px',borderRadius:999,fontWeight:800,fontSize:12,letterSpacing:'.08em',border:'1px solid rgba(255,255,255,.12)',background:health?.brokerMode==='DEMO'?'rgba(250,204,21,.12)':'rgba(239,68,68,.12)',color:health?.brokerMode==='DEMO'?'#fde68a':'#fecaca'}}>{health?.brokerMode==='DEMO'?'🟡 DEMO • VIRTUAL MONEY':'🔴 LIVE • REAL MONEY'}</span>
           <button className="refresh" onClick={load} aria-label="Refresh"><RefreshCw size={17} className={loading?'spin':''}/></button>
           <button className="lang" onClick={()=>setLang(lang==='en'?'pt':'en')}><Globe2 size={16}/>{lang==='en'?'PT-BR':'EN'}</button>
         </div>
@@ -128,7 +129,7 @@ function App(){
         <Metric icon={<WalletCards/>} label={x.balance} value={money(account?.balance)} meta="Broker balance"/>
         <Metric icon={<Activity/>} label={x.equity} value={money(account?.equity)} meta={`24h DD ${drawdown.toFixed(2)}%`}/>
         <Metric icon={<Gauge/>} label={x.margin} value={money(account?.marginAvailable)} meta="Real-time"/>
-        <Metric icon={<Target/>} label={x.open} value={String(positions.length)} meta="Live account"/>
+        <Metric icon={<Target/>} label={x.open} value={String(positions.length)} meta={health?.brokerMode==='DEMO'?'Demo account':'Live account'}/>
       </section>
 
       <section className="main-grid">
