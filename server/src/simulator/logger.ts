@@ -11,8 +11,16 @@ export function logSimulator(event:Record<string,unknown>){
 }
 
 export function logTrade(event:Record<string,unknown>){
- const dir=resolve(process.cwd(),'logs','simulator')
+ const dir=resolve(process.cwd(),'..','logs','simulator')
  mkdirSync(dir,{recursive:true})
  const row={at:new Date().toISOString(),...event}
  appendFileSync(resolve(dir,'trades.jsonl'),JSON.stringify(row)+'\n','utf8')
+}
+
+
+export function logFimatheMarket(event:Record<string,unknown>){
+ const dir=resolve(process.cwd(),'..','logs','fimathe-market')
+ mkdirSync(dir,{recursive:true})
+ const row={at:new Date().toISOString(),...event}
+ appendFileSync(resolve(dir,`${day()}.jsonl`),JSON.stringify(row)+'\n','utf8')
 }
