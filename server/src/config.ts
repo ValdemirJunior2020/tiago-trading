@@ -26,3 +26,5 @@ export const LIMITS = Object.freeze({
   kill24h: new Decimal('0.03'),
   riskPerTrade: new Decimal('0.0025')
 })
+
+export const BROKER_MODE = env.OANDA_REST_BASE_URL.includes('fxpractice') ? 'DEMO' : 'LIVE'
