@@ -92,7 +92,9 @@ export class ResearchSimulator{
   const stop=new Decimal(p.hardStop)
   const hit=p.direction==='long'?new Decimal(exit).lte(stop):new Decimal(exit).gte(stop)
   const unrealized=this.pnlFor(p,exit)
-  logSimulator({event:'POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString()})
+  const markedEquity=new Decimal(this.state.balance).plus(unrealized)
+  this.simRisk.recordEquity(markedEquity.toString())
+  logSimulator({event:'POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString(),markedEquity:markedEquity.toString(),riskLocked:this.simRisk.locked()})
   if(hit)this.closePosition(exit,'HARD_STOP')
  }
 
