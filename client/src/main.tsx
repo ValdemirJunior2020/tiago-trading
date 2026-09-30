@@ -54,18 +54,21 @@ function App(){
   const[positions,setPositions]=useState<any[]>([])
   const[quotes,setQuotes]=useState<Record<string,Quote>>({})
   const[loading,setLoading]=useState(false)
+  const[sim,setSim]=useState<any>(null)
+  const[notify,setNotify]=useState(false)
   const x=copy[lang]
 
   const load=async()=>{
     setLoading(true)
     try{
-      const[h,a,p,...qs]=await Promise.all([
+      const[h,a,p,sm,...qs]=await Promise.all([
         fetch('http://127.0.0.1:8790/health').then(r=>r.json()).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
+        fetch('http://127.0.0.1:8790/api/simulator').then(r=>r.ok?r.json():null).catch(()=>null),
         ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8790/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
       ])
-      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[])
+      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm?.state||null)
       const next:Record<string,Quote>={}
       qs.forEach((q:any)=>{if(q?.symbol)next[q.symbol]=q})
       setQuotes(next)
@@ -73,6 +76,17 @@ function App(){
   }
 
   useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[])
+  useEffect(()=>{
+    if(!notify||!sim?.lastSignal||typeof Notification==='undefined'||Notification.permission!=='granted')return
+    const key='tiago-last-notified-signal'
+    const id=String(sim.lastSignal.at||'')
+    if(!id||localStorage.getItem(key)===id)return
+    localStorage.setItem(key,id)
+    const d=sim.lastSignal
+    new Notification(`Tiago ${d.signal?.decision||'SIGNAL'} • ${String(d.symbol||'').replace('_','/')}`,{
+      body:(d.signal?.reasons||[]).join(' • ')||'Novo sinal do simulador'
+    })
+  },[sim?.lastSignal?.at,notify])
 
   const drawdown=useMemo(()=>{
     const n=Number(account?.drawdown24h||0)*100
@@ -163,6 +177,28 @@ function App(){
           </div>
           <div className="ai-note">{x.safe}</div>
         </div>
+      </section>
+
+      <section className="panel simulator-panel">
+        <div className="panel-head">
+          <div><span className="kicker"><Activity size={15}/> SIMULADOR</span><h2>{lang==='pt'?'O que o Tiago está fazendo':'What Tiago is doing'}</h2><p>{lang==='pt'?'Você acompanha cada decisão e cada trade simulado aqui.':'Track every decision and simulated trade here.'}</p></div>
+          <button className="lang" onClick={async()=>{
+            if(typeof Notification==='undefined')return
+            const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission()
+            setNotify(permission==='granted')
+          }}>{notify?'🔔 ON':'🔕 '+(lang==='pt'?'Avisos':'Alerts')}</button>
+        </div>
+        <div className="sim-grid">
+          <div className="sim-card"><small>{lang==='pt'?'DECISÕES':'DECISIONS'}</small><strong>{sim?.decisions??0}</strong><span>{lang==='pt'?'candles avaliados':'candles evaluated'}</span></div>
+          <div className="sim-card"><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.signals??0}</strong><span>{lang==='pt'?'LONG/SHORT encontrados':'LONG/SHORT found'}</span></div>
+          <div className="sim-card"><small>{lang==='pt'?'SALDO SIMULADO':'SIM BALANCE'}</small><strong>{money(sim?.balance)}</strong><span>P/L: {money(sim?.realizedPL)}</span></div>
+          <div className="sim-card"><small>{lang==='pt'?'POSIÇÃO':'POSITION'}</small><strong>{sim?.position?String(sim.position.direction).toUpperCase():'WAIT'}</strong><span>{sim?.position?String(sim.position.symbol).replace('_','/'):(lang==='pt'?'nenhuma aberta':'none open')}</span></div>
+        </div>
+        <div className="sim-detail">
+          <div><small>{lang==='pt'?'ÚLTIMA DECISÃO':'LAST DECISION'}</small><b>{sim?.lastDecision?String(sim.lastDecision.symbol).replace('_','/')+' • '+String(sim.lastDecision.signal?.decision||'WAIT'):'—'}</b><span>{sim?.lastDecision?.signal?.reasons?.join(' • ')||'—'}</span></div>
+          <div><small>{lang==='pt'?'ÚLTIMA AÇÃO':'LAST ACTION'}</small><b>{sim?.lastAction?.type||'—'}</b><span>{sim?.lastAction?JSON.stringify(sim.lastAction):lang==='pt'?'Nenhum trade simulado ainda':'No simulated trade yet'}</span></div>
+        </div>
+        <div className="risk-footer"><ShieldCheck size={16}/><span>{lang==='pt'?'O simulador escolhe os trades pela estratégia matemática; Ollama só pode vetar.':'The simulator chooses trades from the deterministic strategy; Ollama can only veto.'}</span><b>{lang==='pt'?'DEMO/PAPER':'DEMO/PAPER'}</b></div>
       </section>
 
       <section className="panel protection">
