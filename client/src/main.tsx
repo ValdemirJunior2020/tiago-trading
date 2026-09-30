@@ -170,7 +170,7 @@ function App(){
           <span className="locked-pill"><ShieldCheck size={14}/> LOCKED</span>
         </div>
         <div className="risk-grid">
-          <RiskCard label={x.hardStop} value="0.8%" detail="Fill-based"/>
+          <RiskCard label={x.hardStop} value="0.8%" detail="Planner reference; fill revalidated"/>
           <RiskCard label={x.slippage} value="0.1%" detail="Hard ceiling"/>
           <RiskCard label={x.kill} value="3.0%" detail="Rolling 24h"/>
           <RiskCard label={x.exposure} value="0.25%" detail="Capital at risk"/>
