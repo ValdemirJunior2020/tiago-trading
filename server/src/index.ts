@@ -57,8 +57,9 @@ app.post('/api/plan',async(req,res)=>{
     const direction=req.body.direction==='short'?'short':'long'
     const price=direction==='long'?q.ask:q.bid
     const plan=risk.plan(req.body.symbol,direction,price,a.equity,req.body.reasons||[])
-    const ai=await critique({plan,quote:q}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'}))
-    res.json({plan,ai,manualExecutionRequired:true})
+    const margin=await broker.marginMetrics(req.body.symbol,price,plan.units,a.marginAvailable)
+    const ai=await critique({plan,margin,quote:q}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'}))
+    res.json({plan:{...plan,...margin},ai,manualExecutionRequired:true})
   }catch(e){
     res.status(400).json({error:e instanceof Error?e.message:String(e)})
   }
