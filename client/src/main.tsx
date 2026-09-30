@@ -60,10 +60,10 @@ function App(){
     setLoading(true)
     try{
       const[h,a,p,...qs]=await Promise.all([
-        fetch('http://127.0.0.1:8787/health').then(r=>r.json()).catch(()=>null),
-        fetch('http://127.0.0.1:8787/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
-        fetch('http://127.0.0.1:8787/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
-        ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8787/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
+        fetch('http://127.0.0.1:8790/health').then(r=>r.json()).catch(()=>null),
+        fetch('http://127.0.0.1:8790/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch('http://127.0.0.1:8790/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
+        ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8790/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
       ])
       setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[])
       const next:Record<string,Quote>={}
