@@ -19,6 +19,11 @@ type Position={
  hardStop:string
  openedAt:string
  reasons:string[]
+ marginRequired?:string
+ marginAvailable?:string
+ marginAfterTrade?:string
+ effectiveLeverage?:string
+ lotSize?:string
 }
 
 type State={
@@ -212,18 +217,20 @@ export class ResearchSimulator{
   const direction:Direction=signal.decision==='LONG'?'long':'short'
   const fill=direction==='long'?q.ask:q.bid
   const plan=this.simRisk.plan(symbol,direction,fill,this.state.balance,signal.reasons)
-  const ai=await critique({mode:'SIMULATOR',symbol,signal,plan,context}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'})) as any
+  const account=await this.broker.account()
+  const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
+  const ai=await critique({mode:'SIMULATOR',symbol,signal,plan,margin,context}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'})) as any
   logSimulator({event:'SIGNAL_REVIEW',symbol,signal,plan,ai})
   if(String(ai?.decision||'').toUpperCase()==='VETO'){
    logSimulator({event:'SIGNAL_SKIPPED',symbol,reason:'OLLAMA_VETO',ai})
    return
   }
 
-  this.state.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,openedAt:new Date().toISOString(),reasons:plan.reasons}
-  this.state.lastAction={at:new Date().toISOString(),type:'PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,reasons:plan.reasons,ai}
+  this.state.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,openedAt:new Date().toISOString(),reasons:plan.reasons,...margin}
+  this.state.lastAction={at:new Date().toISOString(),type:'PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,reasons:plan.reasons,ai}
   this.simRisk.recordEquity(this.state.balance)
   this.save()
-  logTrade({event:'PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,reasons:plan.reasons,ai})
+  logTrade({event:'PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,...margin,reasons:plan.reasons,ai})
  }
 
  async tick(){
