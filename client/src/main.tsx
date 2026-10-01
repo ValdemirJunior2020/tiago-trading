@@ -122,6 +122,26 @@ function App(){
     return{realized,unrealized,total,roi}
   },[sim,quotes])
 
+  const shadowProfit=useMemo(()=>{
+    const sh=sim?.shadowExperiment
+    const realized=Number(sh?.realizedPL||0)
+    const p=sh?.position
+    let unrealized=0
+    if(p){
+      const q=quotes[p.symbol]
+      const entry=Number(p.entry),units=Number(p.units)
+      const exit=p.direction==='long'?Number(q?.bid):Number(q?.ask)
+      if(Number.isFinite(entry)&&Number.isFinite(units)&&Number.isFinite(exit)){
+        unrealized=(p.direction==='long'?exit-entry:entry-exit)*units
+      }
+    }
+    const total=realized+unrealized
+    const currentBalance=Number(sh?.balance||0)
+    const initial=currentBalance-realized
+    const roi=initial>0?(total/initial)*100:0
+    return{realized,unrealized,total,roi}
+  },[sim,quotes])
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand-mini">
@@ -263,6 +283,32 @@ function App(){
           <div><small>{lang==='pt'?'CANDIDATOS 3/4':'3/4 CANDIDATES'}</small><b>{sim?.shadowCandidates??0}</b><span>{sim?.lastShadowCandidate?String(sim.lastShadowCandidate.symbol).replace('_','/')+' • '+String(sim.lastShadowCandidate.side)+' • '+(lang==='pt'?'faltou ':'missing ')+(sim.lastShadowCandidate.missing?.join(', ')||'—'):(lang==='pt'?'Nenhum candidato ainda':'No candidate yet')}</span></div>
         </div>
         <div className="risk-footer"><ShieldCheck size={16}/><span>{lang==='pt'?'O simulador escolhe os trades pela estratégia matemática; Ollama só pode vetar.':'The simulator chooses trades from the deterministic strategy; Ollama can only veto.'}</span><b>{lang==='pt'?'DEMO/PAPER':'DEMO/PAPER'}</b></div>
+      </section>
+
+      <section className="panel shadow-lab">
+        <div className="panel-head">
+          <div>
+            <span className="kicker"><Target size={15}/> SHADOW 3/4</span>
+            <h2>{lang==='pt'?'Laboratório de trades 3/4':'3/4 trade lab'}</h2>
+            <p>{lang==='pt'?'Paper engine separado. Não altera a estratégia STRICT e não envia ordens reais.':'Separate paper engine. It does not change STRICT and never sends real orders.'}</p>
+          </div>
+          <span className="locked-pill">RESEARCH ONLY</span>
+        </div>
+        <div className="shadow-grid">
+          <div><small>{lang==='pt'?'SALDO SHADOW':'SHADOW BALANCE'}</small><strong>{money(sim?.shadowExperiment?.balance)}</strong></div>
+          <div><small>{lang==='pt'?'P/L TOTAL':'TOTAL P/L'}</small><strong className={shadowProfit.total>0?'profit-up':shadowProfit.total<0?'profit-down':''}>{signedMoney(shadowProfit.total)}</strong></div>
+          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><strong>{signedMoney(shadowProfit.realized)}</strong></div>
+          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><strong>{signedMoney(shadowProfit.unrealized)}</strong></div>
+          <div><small>{lang==='pt'?'ABERTOS':'OPENS'}</small><strong>{sim?.shadowExperiment?.opens??0}</strong></div>
+          <div><small>{lang==='pt'?'FECHADOS':'CLOSES'}</small><strong>{sim?.shadowExperiment?.closes??0}</strong></div>
+          <div><small>W / L</small><strong>{sim?.shadowExperiment?.wins??0} / {sim?.shadowExperiment?.losses??0}</strong></div>
+          <div><small>ROI</small><strong>{signedPct(shadowProfit.roi)}</strong></div>
+        </div>
+        <div className="shadow-position">
+          <small>{lang==='pt'?'POSIÇÃO SHADOW':'SHADOW POSITION'}</small>
+          <b>{sim?.shadowExperiment?.position?String(sim.shadowExperiment.position.symbol).replace('_','/')+' • '+String(sim.shadowExperiment.position.direction).toUpperCase():(lang==='pt'?'Nenhuma aberta':'None open')}</b>
+          <span>{sim?.shadowExperiment?.lastAction?JSON.stringify(sim.shadowExperiment.lastAction):(lang==='pt'?'Aguardando candidato 3/4':'Waiting for 3/4 candidate')}</span>
+        </div>
       </section>
 
       <section className="panel protection">
