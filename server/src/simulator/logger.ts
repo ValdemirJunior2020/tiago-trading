@@ -24,3 +24,11 @@ export function logFimatheMarket(event:Record<string,unknown>){
  const row={at:new Date().toISOString(),...event}
  appendFileSync(resolve(dir,`${day()}.jsonl`),JSON.stringify(row)+'\n','utf8')
 }
+
+
+export function logShadowCandidate(event:Record<string,unknown>){
+ const dir=resolve(process.cwd(),'..','logs','shadow-candidates')
+ mkdirSync(dir,{recursive:true})
+ const row={at:new Date().toISOString(),...event}
+ appendFileSync(resolve(dir,`${day()}.jsonl`),JSON.stringify(row)+'\n','utf8')
+}
