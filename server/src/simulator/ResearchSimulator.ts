@@ -4,11 +4,11 @@ import{resolve,dirname}from'node:path'
 import{fileURLToPath}from'node:url'
 import{OandaReadOnly}from'../broker/OandaReadOnly.js'
 import{strategyContext}from'../indicators.js'
-import{evaluate}from'../strategy.js'
+import{evaluate,analyzeCandidate}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
 import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS}from'../config.js'
-import{logSimulator,logTrade,logFimatheMarket}from'./logger.js'
+import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate}from'./logger.js'
 import type{Direction}from'@profitmind/shared'
 
 type Position={
@@ -38,6 +38,8 @@ type State={
  lastSignal:any|null
  lastAction:any|null
  fimatheLastCandle:Record<string,string>
+ shadowCandidates:number
+ lastShadowCandidate:any|null
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
@@ -45,7 +47,7 @@ const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
 const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{}}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
@@ -170,11 +172,19 @@ export class ResearchSimulator{
   this.state.lastCandle[symbol]=last.time
   const context=strategyContext(m5,m10)
   const signal=evaluate(context)
+  const candidate=analyzeCandidate(context)
   this.state.decisions++
   this.state.lastDecision={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
   if(signal.decision!=='WAIT'){
    this.state.signals++
    this.state.lastSignal={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
+  }
+  if(signal.decision==='WAIT'&&candidate.side){
+   const shadow={at:new Date().toISOString(),event:'SHADOW_CANDIDATE',symbol,candleTime:last.time,side:candidate.side,matched:candidate.matched,total:candidate.total,missing:candidate.missing,matchedConditions:candidate.matchedConditions,context,quote:q,simulatedOnly:true,executed:false}
+   this.state.shadowCandidates++
+   this.state.lastShadowCandidate=shadow
+   logShadowCandidate(shadow)
+   logSimulator(shadow)
   }
 
   const spreadPct=this.simRisk.spreadPct(q.bid,q.ask).toString()
@@ -185,6 +195,7 @@ export class ResearchSimulator{
    quote:q,
    indicators:context,
    signal,
+   candidate,
    spreadPct,
    simulatedBalance:this.state.balance,
    riskLocked:this.simRisk.locked(),
