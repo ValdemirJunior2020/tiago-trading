@@ -292,3 +292,15 @@ h1,h2,p{margin:0}
 .margin-mini small{display:block;color:#60758e;font-size:6px;letter-spacing:.08em;margin-bottom:3px}
 .margin-mini b{font-size:9px;color:#b9c9db}
 .margin-mini>div:last-child{grid-column:1/-1}
+
+.shadow-lab{margin-bottom:12px}
+.shadow-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:0 20px 16px}
+.shadow-grid>div{padding:14px;border:1px solid rgba(183,140,255,.12);background:rgba(13,17,30,.56);border-radius:14px}
+.shadow-grid small{display:block;color:#7787a0;font-size:8px;letter-spacing:.1em;margin-bottom:7px}
+.shadow-grid strong{font-size:18px}
+.shadow-position{margin:0 20px 20px;padding:14px;border-radius:14px;border:1px solid rgba(183,140,255,.10);background:rgba(183,140,255,.035)}
+.shadow-position small{display:block;color:#7a87a0;font-size:8px;letter-spacing:.1em}
+.shadow-position b{display:block;margin:7px 0;font-size:12px}
+.shadow-position span{display:block;color:#718098;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:820px){.shadow-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.shadow-grid{grid-template-columns:1fr}}
