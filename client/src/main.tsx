@@ -253,13 +253,14 @@ function App(){
         </div>
         <div className="sim-grid">
           <div className="sim-card"><small>{lang==='pt'?'DECISÕES':'DECISIONS'}</small><strong>{sim?.decisions??0}</strong><span>{lang==='pt'?'candles avaliados':'candles evaluated'}</span></div>
-          <div className="sim-card"><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.signals??0}</strong><span>{lang==='pt'?'LONG/SHORT encontrados':'LONG/SHORT found'}</span></div>
+          <div className="sim-card"><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.signals??0}</strong><span>{lang==='pt'?'LONG/SHORT estritos':'strict LONG/SHORT'}</span></div>
           <div className="sim-card"><small>{lang==='pt'?'SALDO SIMULADO':'SIM BALANCE'}</small><strong>{money(sim?.balance)}</strong><span>P/L: {money(sim?.realizedPL)}</span></div>
           <div className="sim-card"><small>{lang==='pt'?'POSIÇÃO':'POSITION'}</small><strong>{sim?.position?String(sim.position.direction).toUpperCase():'WAIT'}</strong><span>{sim?.position?String(sim.position.symbol).replace('_','/'):(lang==='pt'?'nenhuma aberta':'none open')}</span></div>
         </div>
         <div className="sim-detail">
           <div><small>{lang==='pt'?'ÚLTIMA DECISÃO':'LAST DECISION'}</small><b>{sim?.lastDecision?String(sim.lastDecision.symbol).replace('_','/')+' • '+String(sim.lastDecision.signal?.decision||'WAIT'):'—'}</b><span>{sim?.lastDecision?.signal?.reasons?.join(' • ')||'—'}</span></div>
           <div><small>{lang==='pt'?'ÚLTIMA AÇÃO':'LAST ACTION'}</small><b>{sim?.lastAction?.type||'—'}</b><span>{sim?.lastAction?JSON.stringify(sim.lastAction):lang==='pt'?'Nenhum trade simulado ainda':'No simulated trade yet'}</span></div>
+          <div><small>{lang==='pt'?'CANDIDATOS 3/4':'3/4 CANDIDATES'}</small><b>{sim?.shadowCandidates??0}</b><span>{sim?.lastShadowCandidate?String(sim.lastShadowCandidate.symbol).replace('_','/')+' • '+String(sim.lastShadowCandidate.side)+' • '+(lang==='pt'?'faltou ':'missing ')+(sim.lastShadowCandidate.missing?.join(', ')||'—'):(lang==='pt'?'Nenhum candidato ainda':'No candidate yet')}</span></div>
         </div>
         <div className="risk-footer"><ShieldCheck size={16}/><span>{lang==='pt'?'O simulador escolhe os trades pela estratégia matemática; Ollama só pode vetar.':'The simulator chooses trades from the deterministic strategy; Ollama can only veto.'}</span><b>{lang==='pt'?'DEMO/PAPER':'DEMO/PAPER'}</b></div>
       </section>
