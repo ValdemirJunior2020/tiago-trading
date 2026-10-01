@@ -8,7 +8,7 @@ import{evaluate,analyzeCandidate}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
 import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS}from'../config.js'
-import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate}from'./logger.js'
+import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade}from'./logger.js'
 import type{Direction}from'@profitmind/shared'
 
 type Position={
@@ -40,17 +40,29 @@ type State={
  fimatheLastCandle:Record<string,string>
  shadowCandidates:number
  lastShadowCandidate:any|null
+ shadowExperiment:{
+  balance:string
+  realizedPL:string
+  position:Position|null
+  opens:number
+  closes:number
+  wins:number
+  losses:number
+  lastAction:any|null
+ }
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
 const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
 const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
+const SHADOW_RISK_PATH=resolve(here,'../../../data/shadow-simulator-risk.json')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
+ private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
 
  constructor(private broker:OandaReadOnly){this.load()}
 
@@ -67,11 +79,19 @@ export class ResearchSimulator{
  }
 
  private async ensureBalance(){
-  if(new Decimal(this.state.balance||0).gt(0))return
   const a=await this.broker.account()
-  this.state.balance=a.equity
-  this.simRisk.recordEquity(a.equity)
-  this.save()
+  let changed=false
+  if(new Decimal(this.state.balance||0).lte(0)){
+   this.state.balance=a.equity
+   this.simRisk.recordEquity(a.equity)
+   changed=true
+  }
+  if(new Decimal(this.state.shadowExperiment?.balance||0).lte(0)){
+   this.state.shadowExperiment={...(this.state.shadowExperiment||{opens:0,closes:0,wins:0,losses:0,lastAction:null,position:null,realizedPL:'0'}),balance:a.equity}
+   this.shadowRisk.recordEquity(a.equity)
+   changed=true
+  }
+  if(changed)this.save()
  }
 
  start(){
@@ -120,6 +140,58 @@ export class ResearchSimulator{
   this.simRisk.recordEquity(this.state.balance)
   this.save()
   logTrade({event:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:this.state.balance,reason,openedAt:p.openedAt})
+ }
+
+ private async manageShadowOpen(){
+  const p=this.state.shadowExperiment.position
+  if(!p)return
+  const q=await this.broker.quote(p.symbol)
+  const exit=p.direction==='long'?q.bid:q.ask
+  const stop=new Decimal(p.hardStop)
+  const hit=p.direction==='long'?new Decimal(exit).lte(stop):new Decimal(exit).gte(stop)
+  const unrealized=this.pnlFor(p,exit)
+  const markedEquity=new Decimal(this.state.shadowExperiment.balance).plus(unrealized)
+  this.shadowRisk.recordEquity(markedEquity.toString())
+  logShadowTrade({event:'SHADOW_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString(),markedEquity:markedEquity.toString(),riskLocked:this.shadowRisk.locked()})
+  if(hit)this.closeShadowPosition(exit,'HARD_STOP')
+ }
+
+ private closeShadowPosition(exit:string,reason:string){
+  const p=this.state.shadowExperiment.position
+  if(!p)return
+  const pnl=this.pnlFor(p,exit)
+  const nextBalance=new Decimal(this.state.shadowExperiment.balance).plus(pnl)
+  const won=pnl.gt(0)
+  this.state.shadowExperiment.balance=nextBalance.toString()
+  this.state.shadowExperiment.realizedPL=new Decimal(this.state.shadowExperiment.realizedPL).plus(pnl).toString()
+  this.state.shadowExperiment.position=null
+  this.state.shadowExperiment.closes++
+  if(won)this.state.shadowExperiment.wins++
+  else if(pnl.lt(0))this.state.shadowExperiment.losses++
+  this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString()}
+  this.shadowRisk.recordEquity(nextBalance.toString())
+  this.save()
+  logShadowTrade({event:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt})
+ }
+
+ private async maybeOpenShadow(symbol:string,candidate:ReturnType<typeof analyzeCandidate>,q:any){
+  if(!candidate.side||this.state.shadowExperiment.position||this.shadowRisk.locked())return
+  if(!['EUR_USD','GBP_USD'].includes(symbol)){
+   logShadowTrade({event:'SHADOW_SIGNAL_SKIPPED',symbol,side:candidate.side,reason:'Cross-currency P/L conversion not yet enabled',candidate})
+   return
+  }
+  const direction:Direction=candidate.side==='LONG'?'long':'short'
+  const fill=direction==='long'?q.ask:q.bid
+  const reasons=[...candidate.matchedConditions,`missing: ${candidate.missing.join(', ')}`]
+  const plan=this.shadowRisk.plan(symbol,direction,fill,this.state.shadowExperiment.balance,reasons)
+  const account=await this.broker.account()
+  const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
+  this.state.shadowExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,openedAt:new Date().toISOString(),reasons,...margin}
+  this.state.shadowExperiment.opens++
+  this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,candidate}
+  this.shadowRisk.recordEquity(this.state.shadowExperiment.balance)
+  this.save()
+  logShadowTrade({event:'SHADOW_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,...margin,candidate,simulatedOnly:true})
  }
 
  private async captureFimatheMarket(symbol:string){
@@ -185,6 +257,16 @@ export class ResearchSimulator{
    this.state.lastShadowCandidate=shadow
    logShadowCandidate(shadow)
    logSimulator(shadow)
+
+   const currentShadow=this.state.shadowExperiment.position
+   if(currentShadow){
+    const opposite=(currentShadow.direction==='long'&&candidate.side==='SHORT')||(currentShadow.direction==='short'&&candidate.side==='LONG')
+    if(opposite){
+     const exit=currentShadow.direction==='long'?q.bid:q.ask
+     this.closeShadowPosition(exit,'OPPOSITE_3_OF_4')
+    }
+   }
+   await this.maybeOpenShadow(symbol,candidate,q)
   }
 
   const spreadPct=this.simRisk.spreadPct(q.bid,q.ask).toString()
@@ -251,6 +333,7 @@ export class ResearchSimulator{
    if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime()){this.stop();return}
    await this.ensureBalance()
    await this.manageOpen()
+   await this.manageShadowOpen()
    for(const symbol of SIMULATOR_PAIRS){
     try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
     catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
