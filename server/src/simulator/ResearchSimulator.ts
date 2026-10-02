@@ -129,6 +129,7 @@ export class ResearchSimulator{
   if(!SIMULATOR_ENABLED)return
   if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime())return
   logSimulator({event:'SIMULATOR_START',endAt:env.SIMULATOR_END_AT,pairs:SIMULATOR_PAIRS})
+  logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
  }
@@ -151,7 +152,7 @@ export class ResearchSimulator{
   if(!p)return
   const q=await this.broker.quote(p.symbol)
   if(q.symbol!==p.symbol){
-   logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
+   logSimulator({event:'QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
    return
   }
   const exit=p.direction==='long'?q.bid:q.ask
@@ -181,6 +182,10 @@ export class ResearchSimulator{
   const p=this.state.shadowExperiment.position
   if(!p)return
   const q=await this.broker.quote(p.symbol)
+  if(q.symbol!==p.symbol){
+   logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
+   return
+  }
   const exit=p.direction==='long'?q.bid:q.ask
   const stop=new Decimal(p.hardStop)
   const hit=p.direction==='long'?new Decimal(exit).lte(stop):new Decimal(exit).gte(stop)
