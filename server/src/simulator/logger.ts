@@ -35,7 +35,7 @@ export function logShadowCandidate(event:Record<string,unknown>){
 
 
 export function logShadowTrade(event:Record<string,unknown>){
- const dir=resolve(process.cwd(),'..','logs','shadow-candidates')
+ const dir=resolve(process.cwd(),'..','logs','shadow-paper')
  mkdirSync(dir,{recursive:true})
  const row={at:new Date().toISOString(),...event}
  appendFileSync(resolve(dir,'trades.jsonl'),JSON.stringify(row)+'\n','utf8')
