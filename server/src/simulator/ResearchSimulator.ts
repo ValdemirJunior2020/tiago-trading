@@ -86,11 +86,42 @@ export class ResearchSimulator{
    this.simRisk.recordEquity(a.equity)
    changed=true
   }
-  if(new Decimal(this.state.shadowExperiment?.balance||0).lte(0)){
-   this.state.shadowExperiment={...(this.state.shadowExperiment||{opens:0,closes:0,wins:0,losses:0,lastAction:null,position:null,realizedPL:'0'}),balance:a.equity}
+
+  const shadow=this.state.shadowExperiment
+  const shadowBalance=new Decimal(shadow?.balance||0)
+  const shadowRealized=new Decimal(shadow?.realizedPL||0)
+  const referenceEquity=new Decimal(a.equity||0)
+
+  // Self-heal only obviously impossible/corrupted paper state.
+  // With this simulator's capped risk, realized P/L beyond 200% of the
+  // reference account is treated as data corruption, not a trading result.
+  const corruptedShadow=
+   shadowBalance.lte(0)||
+   (referenceEquity.gt(0)&&shadowRealized.abs().gt(referenceEquity.mul(2)))
+
+  if(corruptedShadow){
+   const previous={...shadow}
+   this.state.shadowExperiment={
+    balance:a.equity,
+    realizedPL:'0',
+    position:null,
+    opens:0,
+    closes:0,
+    wins:0,
+    losses:0,
+    lastAction:{
+     at:new Date().toISOString(),
+     type:'SHADOW_STATE_REPAIRED',
+     reason:'Invalid shadow P/L state detected after cross-symbol quote bug',
+     previous
+    }
+   }
+   this.shadowRisk=new RiskManager(SHADOW_RISK_PATH)
    this.shadowRisk.recordEquity(a.equity)
+   logShadowTrade({event:'SHADOW_STATE_REPAIRED',reason:'Invalid shadow P/L state detected after cross-symbol quote bug',previous,recoveredBalance:a.equity})
    changed=true
   }
+
   if(changed)this.save()
  }
 
@@ -119,6 +150,10 @@ export class ResearchSimulator{
   const p=this.state.position
   if(!p)return
   const q=await this.broker.quote(p.symbol)
+  if(q.symbol!==p.symbol){
+   logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
+   return
+  }
   const exit=p.direction==='long'?q.bid:q.ask
   const stop=new Decimal(p.hardStop)
   const hit=p.direction==='long'?new Decimal(exit).lte(stop):new Decimal(exit).gte(stop)
@@ -259,11 +294,15 @@ export class ResearchSimulator{
    logSimulator(shadow)
 
    const currentShadow=this.state.shadowExperiment.position
-   if(currentShadow){
+   if(currentShadow&&currentShadow.symbol===symbol){
     const opposite=(currentShadow.direction==='long'&&candidate.side==='SHORT')||(currentShadow.direction==='short'&&candidate.side==='LONG')
     if(opposite){
-     const exit=currentShadow.direction==='long'?q.bid:q.ask
-     this.closeShadowPosition(exit,'OPPOSITE_3_OF_4')
+     if(q.symbol!==currentShadow.symbol){
+      logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:currentShadow.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch on opposite candidate'})
+     }else{
+      const exit=currentShadow.direction==='long'?q.bid:q.ask
+      this.closeShadowPosition(exit,'OPPOSITE_3_OF_4')
+     }
     }
    }
    await this.maybeOpenShadow(symbol,candidate,q)
