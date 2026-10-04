@@ -116,9 +116,20 @@ export class ResearchSimulator{
      previous
     }
    }
-   this.shadowRisk=new RiskManager(SHADOW_RISK_PATH)
-   this.shadowRisk.recordEquity(a.equity)
+   this.shadowRisk.reset(a.equity)
    logShadowTrade({event:'SHADOW_STATE_REPAIRED',reason:'Invalid shadow P/L state detected after cross-symbol quote bug',previous,recoveredBalance:a.equity})
+   changed=true
+  }
+
+  const staleShadowRisk=
+   this.state.shadowExperiment.opens===0&&
+   this.state.shadowExperiment.closes===0&&
+   new Decimal(this.state.shadowExperiment.realizedPL||0).eq(0)&&
+   this.shadowRisk.locked()
+
+  if(staleShadowRisk){
+   this.shadowRisk.reset(a.equity)
+   logShadowTrade({event:'SHADOW_RISK_RESET',reason:'Stale/corrupted shadow risk history cleared',recoveredEquity:a.equity})
    changed=true
   }
 
