@@ -58,6 +58,12 @@ export class RiskManager{
   this.persist()
  }
 
+ reset(equity?:string,t=Date.now()){
+  this.eq=[]
+  if(equity!==undefined)this.eq.push({t,e:new Decimal(equity)})
+  this.persist()
+ }
+
  drawdown24h(){
   if(!this.eq.length)return new Decimal(0)
   const cur=this.eq.at(-1)!.e,peak=Decimal.max(...this.eq.map(x=>x.e))
