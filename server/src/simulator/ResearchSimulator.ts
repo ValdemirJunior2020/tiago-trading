@@ -29,6 +29,21 @@ type Position={
  trailingActive?:boolean
 }
 
+type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'FIMATHE'
+type StrategyStats={
+ trades:number
+ wins:number
+ losses:number
+ grossProfit:string
+ grossLoss:string
+ netProfit:string
+ peakNetProfit:string
+ maxDrawdown:string
+ lastPnl:string
+ lastClosedAt:string|null
+}
+const blankStrategyStats=():StrategyStats=>({trades:0,wins:0,losses:0,grossProfit:'0',grossLoss:'0',netProfit:'0',peakNetProfit:'0',maxDrawdown:'0',lastPnl:'0',lastClosedAt:null})
+
 type State={
  balance:string
  realizedPL:string
@@ -53,6 +68,7 @@ type State={
   losses:number
   lastAction:any|null
  }
+ strategyPerformance:Record<StrategyName,StrategyStats>
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
@@ -61,7 +77,7 @@ const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 const SHADOW_RISK_PATH=resolve(here,'../../../data/shadow-simulator-risk.json')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null}}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
@@ -71,7 +87,17 @@ export class ResearchSimulator{
 
  private load(){
   if(!existsSync(STATE_PATH))return
-  try{this.state={...this.state,...JSON.parse(readFileSync(STATE_PATH,'utf8'))}}catch{}
+  try{
+   const saved=JSON.parse(readFileSync(STATE_PATH,'utf8'))
+   this.state={...this.state,...saved}
+   this.state.shadowExperiment={...this.state.shadowExperiment,...(saved.shadowExperiment||{})}
+   const perf=saved.strategyPerformance||{}
+   this.state.strategyPerformance={
+    STRICT_4_OF_4:{...blankStrategyStats(),...(perf.STRICT_4_OF_4||{})},
+    SHADOW_3_OF_4:{...blankStrategyStats(),...(perf.SHADOW_3_OF_4||{})},
+    FIMATHE:{...blankStrategyStats(),...(perf.FIMATHE||{})}
+   }
+  }catch{}
  }
 
  private save(){
@@ -156,6 +182,26 @@ export class ResearchSimulator{
 
  snapshot(){return this.state}
 
+ private recordStrategyResult(strategy:StrategyName,pnl:Decimal){
+  const s=this.state.strategyPerformance[strategy]
+  s.trades++
+  s.lastPnl=pnl.toString()
+  s.lastClosedAt=new Date().toISOString()
+  if(pnl.gt(0)){
+   s.wins++
+   s.grossProfit=new Decimal(s.grossProfit).plus(pnl).toString()
+  }else if(pnl.lt(0)){
+   s.losses++
+   s.grossLoss=new Decimal(s.grossLoss).plus(pnl.abs()).toString()
+  }
+  const net=new Decimal(s.netProfit).plus(pnl)
+  s.netProfit=net.toString()
+  const peak=Decimal.max(new Decimal(s.peakNetProfit),net)
+  s.peakNetProfit=peak.toString()
+  const dd=peak.minus(net)
+  if(dd.gt(new Decimal(s.maxDrawdown)))s.maxDrawdown=dd.toString()
+ }
+
  private pnlFor(p:Position,exit:string){
   const e=new Decimal(exit),entry=new Decimal(p.entry),units=new Decimal(p.units)
   return(p.direction==='long'?e.minus(entry):entry.minus(e)).mul(units)
@@ -187,6 +233,7 @@ export class ResearchSimulator{
   this.state.realizedPL=new Decimal(this.state.realizedPL).plus(pnl).toString()
   this.state.position=null
   this.state.lastAction={at:new Date().toISOString(),type:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:this.state.balance}
+  this.recordStrategyResult('STRICT_4_OF_4',pnl)
   this.simRisk.recordEquity(this.state.balance)
   this.save()
   logTrade({event:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:this.state.balance,reason,openedAt:p.openedAt})
@@ -261,6 +308,7 @@ export class ResearchSimulator{
   if(won)this.state.shadowExperiment.wins++
   else if(pnl.lt(0))this.state.shadowExperiment.losses++
   this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString()}
+  this.recordStrategyResult('SHADOW_3_OF_4',pnl)
   this.shadowRisk.recordEquity(nextBalance.toString())
   this.save()
   logShadowTrade({event:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt})
