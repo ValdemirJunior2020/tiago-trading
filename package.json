@@ -3,12 +3,12 @@
   "private": true,
   "version": "2.0.0",
   "scripts": {
-    "postinstall": "npm install --workspaces=false --prefix server && npm install --workspaces=false --prefix client",
+    "postinstall": "cd server && npm install --workspaces=false && cd ../client && npm install --workspaces=false",
     "dev": "concurrently -n server,client -c auto \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "npm run dev --prefix server",
-    "dev:client": "npm run dev --prefix client",
-    "build": "npm run build --prefix server && npm run build --prefix client",
-    "test": "npm run test --prefix server",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build": "cd server && npm run build && cd ../client && npm run build",
+    "test": "cd server && npm test",
     "verify": "npm run build && npm test"
   },
   "devDependencies": {
