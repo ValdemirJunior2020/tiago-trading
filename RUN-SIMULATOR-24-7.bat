@@ -41,7 +41,17 @@ echo.
 echo Iniciando dashboard...
 start "Tiago Dashboard" /min cmd /c "npm run dev:client >> logs\client-runner.log 2>&1"
 timeout /t 3 /nobreak >nul
-start "" http://127.0.0.1:5173
+
+set "CHROME=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+if not exist "%CHROME%" set "CHROME=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+if not exist "%CHROME%" set "CHROME=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+
+if exist "%CHROME%" (
+  start "" "%CHROME%" "http://127.0.0.1:5173"
+) else (
+  echo [AVISO] Google Chrome nao foi encontrado. Abrindo no navegador padrao...
+  start "" "http://127.0.0.1:5173"
+)
 
 :loop
 echo [%date% %time%] iniciando servidor >> logs\simulator-runner.log
