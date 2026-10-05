@@ -2,7 +2,7 @@ import{Decimal}from'decimal.js'
 import{existsSync,mkdirSync,readFileSync,renameSync,writeFileSync}from'node:fs'
 import{dirname,resolve}from'node:path'
 import{fileURLToPath}from'node:url'
-import type{Direction,TradePlan}from'@profitmind/shared'
+import type{Direction,TradePlan}from'../types.js'
 import{LIMITS}from'../config.js'
 
 type EquityPoint={t:number;e:string}
