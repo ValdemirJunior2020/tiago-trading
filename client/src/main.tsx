@@ -311,6 +311,38 @@ function App(){
         </div>
       </section>
 
+      <section className="panel performance-board">
+        <div className="panel-head">
+          <div>
+            <span className="kicker"><ChartNoAxesCombined size={15}/> STRATEGY SCOREBOARD</span>
+            <h2>{lang==='pt'?'Qual estratégia está fazendo dinheiro?':'Which strategy is making money?'}</h2>
+            <p>{lang==='pt'?'Resultados separados por estratégia. Só trades fechados contam no placar.':'Results separated by strategy. Only closed trades count in the scoreboard.'}</p>
+          </div>
+          <span className="live-pill"><i/> PAPER DATA</span>
+        </div>
+        <div className="strategy-score-grid">
+          <StrategyPerformanceCard
+            name="STRICT 4/4"
+            status={lang==='pt'?'ATIVO • raro':'ACTIVE • selective'}
+            stats={sim?.strategyPerformance?.STRICT_4_OF_4}
+            lang={lang}
+          />
+          <StrategyPerformanceCard
+            name="SHADOW 3/4"
+            status={sim?.shadowExperiment?.position?(lang==='pt'?'ATIVO • trade aberto':'ACTIVE • trade open'):(lang==='pt'?'ATIVO':'ACTIVE')}
+            stats={sim?.strategyPerformance?.SHADOW_3_OF_4}
+            lang={lang}
+          />
+          <StrategyPerformanceCard
+            name="FIMATHE"
+            status={lang==='pt'?'COLETANDO DADOS':'DATA COLLECTION'}
+            stats={sim?.strategyPerformance?.FIMATHE}
+            lang={lang}
+            researchOnly
+          />
+        </div>
+      </section>
+
       <section className="panel protection">
         <div className="panel-head">
           <div><span className="kicker"><ShieldCheck size={15}/>{x.risk}</span><h2>{x.security}</h2><p>{x.securitySub}</p></div>
@@ -349,6 +381,27 @@ function App(){
 
 function Nav({icon,label,active=false}:{icon:React.ReactNode;label:string;active?:boolean}){return <button className={active?'nav-item active':'nav-item'}>{icon}<span>{label}</span></button>}
 function Metric({icon,label,value,meta}:{icon:React.ReactNode;label:string;value:string;meta:string}){return <div className="metric"><div className="metric-icon">{icon}</div><div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{meta}</small></div></div>}
+function StrategyPerformanceCard({name,status,stats,lang,researchOnly=false}:{name:string;status:string;stats:any;lang:Lang;researchOnly?:boolean}){
+  const trades=Number(stats?.trades||0),wins=Number(stats?.wins||0),losses=Number(stats?.losses||0)
+  const grossProfit=Number(stats?.grossProfit||0),grossLoss=Number(stats?.grossLoss||0),net=Number(stats?.netProfit||0),maxDD=Number(stats?.maxDrawdown||0)
+  const winRate=trades>0?(wins/trades)*100:0
+  const avgWin=wins>0?grossProfit/wins:0
+  const avgLoss=losses>0?grossLoss/losses:0
+  const profitFactor=grossLoss>0?grossProfit/grossLoss:grossProfit>0?Infinity:0
+  return <div className="strategy-score-card">
+    <div className="strategy-score-head"><div><small>{status}</small><b>{name}</b></div><span className={researchOnly?'research-badge':'paper-badge'}>{researchOnly?'RESEARCH':'PAPER'}</span></div>
+    <strong className={net>0?'profit-up':net<0?'profit-down':''}>{signedMoney(net)}</strong>
+    <div className="strategy-score-metrics">
+      <div><small>{lang==='pt'?'TRADES':'TRADES'}</small><b>{trades}</b></div>
+      <div><small>{lang==='pt'?'ACERTO':'WIN RATE'}</small><b>{winRate.toFixed(1)}%</b></div>
+      <div><small>{lang==='pt'?'FATOR LUCRO':'PROFIT FACTOR'}</small><b>{profitFactor===Infinity?'∞':profitFactor.toFixed(2)}</b></div>
+      <div><small>{lang==='pt'?'MAX DRAWDOWN':'MAX DRAWDOWN'}</small><b>{money(maxDD)}</b></div>
+      <div><small>{lang==='pt'?'MÉDIA GANHO':'AVG WIN'}</small><b>{signedMoney(avgWin)}</b></div>
+      <div><small>{lang==='pt'?'MÉDIA PERDA':'AVG LOSS'}</small><b>{losses>0?'-'+money(avgLoss):money(0)}</b></div>
+    </div>
+    <div className="strategy-score-foot"><span>W {wins} / L {losses}</span><span>{stats?.lastClosedAt?new Date(stats.lastClosedAt).toLocaleString():(lang==='pt'?'sem trade fechado':'no closed trade')}</span></div>
+  </div>
+}
 function RiskCard({label,value,detail}:{label:string;value:string;detail:string}){return <div className="risk-card"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
 function money(v:any){if(v==null||v==='')return'—';const n=Number(v);return Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n):String(v)}
 function fmt(v:any){const n=Number(v);if(!Number.isFinite(n))return'—';return n>=20?n.toFixed(3):n.toFixed(5)}
