@@ -2,17 +2,13 @@
   "name": "profitmind-forex",
   "private": true,
   "version": "2.0.0",
-  "workspaces": [
-    "client",
-    "server",
-    "shared"
-  ],
   "scripts": {
+    "postinstall": "npm install --prefix server && npm install --prefix client",
     "dev": "concurrently -n server,client -c auto \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "npm run dev -w server",
-    "dev:client": "npm run dev -w client",
-    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
-    "test": "npm run test -w server",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "build": "npm run build --prefix server && npm run build --prefix client",
+    "test": "npm run test --prefix server",
     "verify": "npm run build && npm test"
   },
   "devDependencies": {
