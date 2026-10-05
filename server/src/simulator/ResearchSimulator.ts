@@ -150,7 +150,7 @@ export class ResearchSimulator{
 
    const matched=Array.isArray(latestOpen.candidate?.matchedConditions)?latestOpen.candidate.matchedConditions:[]
    const missing=Array.isArray(latestOpen.candidate?.missing)?latestOpen.candidate.missing:[]
-   const reasons=[...matched,...(missing.length?[\`missing: ${missing.join(', ')}\`]:[])]
+   const reasons=[...matched,...(missing.length?[`missing: ${missing.join(', ')}`]:[])]
 
    this.state.shadowExperiment.position={
     symbol:String(latestOpen.symbol),
