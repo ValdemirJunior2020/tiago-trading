@@ -24,6 +24,9 @@ type Position={
  marginAfterTrade?:string
  effectiveLeverage?:string
  lotSize?:string
+ peakExit?:string
+ profitLockActive?:boolean
+ trailingActive?:boolean
 }
 
 type State={
@@ -198,13 +201,51 @@ export class ResearchSimulator{
    return
   }
   const exit=p.direction==='long'?q.bid:q.ask
+  const exitDec=new Decimal(exit)
+  const entry=new Decimal(p.entry)
+  const units=new Decimal(p.units)
+
+  // Shadow-only profit protection. STRICT strategy remains untouched.
+  // 1) At +$25 open P/L, move the stop to break-even.
+  // 2) Once peak open P/L reaches +$50, trail 50% of the best profit reached.
+  const priorPeak=p.peakExit?new Decimal(p.peakExit):exitDec
+  const betterPeak=p.direction==='long'?exitDec.gt(priorPeak):exitDec.lt(priorPeak)
+  if(!p.peakExit||betterPeak)p.peakExit=exitDec.toString()
+
+  const peakExit=new Decimal(p.peakExit)
+  const peakPnl=(p.direction==='long'?peakExit.minus(entry):entry.minus(peakExit)).mul(units)
+  const currentPnl=this.pnlFor(p,exit)
+
+  if(currentPnl.gte(25)&&!p.profitLockActive){
+   const oldStop=p.hardStop
+   p.hardStop=entry.toString()
+   p.profitLockActive=true
+   this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString()}
+   logShadowTrade({event:'SHADOW_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString()})
+  }
+
+  if(peakPnl.gte(50)){
+   const protectedPnl=peakPnl.mul(0.5)
+   const distance=protectedPnl.div(units)
+   const trailingStop=p.direction==='long'?entry.plus(distance):entry.minus(distance)
+   const currentStop=new Decimal(p.hardStop)
+   const improves=p.direction==='long'?trailingStop.gt(currentStop):trailingStop.lt(currentStop)
+   if(improves){
+    const oldStop=p.hardStop
+    p.hardStop=trailingStop.toString()
+    p.trailingActive=true
+    this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString()}
+    logShadowTrade({event:'SHADOW_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString()})
+   }
+  }
+
   const stop=new Decimal(p.hardStop)
-  const hit=p.direction==='long'?new Decimal(exit).lte(stop):new Decimal(exit).gte(stop)
-  const unrealized=this.pnlFor(p,exit)
+  const hit=p.direction==='long'?exitDec.lte(stop):exitDec.gte(stop)
+  const unrealized=currentPnl
   const markedEquity=new Decimal(this.state.shadowExperiment.balance).plus(unrealized)
   this.shadowRisk.recordEquity(markedEquity.toString())
-  logShadowTrade({event:'SHADOW_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString(),markedEquity:markedEquity.toString(),riskLocked:this.shadowRisk.locked()})
-  if(hit)this.closeShadowPosition(exit,'HARD_STOP')
+  logShadowTrade({event:'SHADOW_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString(),peakUnrealizedPL:peakPnl.toString(),profitLockActive:!!p.profitLockActive,trailingActive:!!p.trailingActive,markedEquity:markedEquity.toString(),riskLocked:this.shadowRisk.locked()})
+  if(hit)this.closeShadowPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
  }
 
  private closeShadowPosition(exit:string,reason:string){
