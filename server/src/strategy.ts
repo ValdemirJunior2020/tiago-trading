@@ -1,4 +1,4 @@
-import type{StrategySignal}from'@profitmind/shared'
+import type{StrategySignal}from'./types.js'
 
 export type Context={
  macroClose:number
