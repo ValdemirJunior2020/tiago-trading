@@ -75,6 +75,7 @@ const here=dirname(fileURLToPath(import.meta.url))
 const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
 const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 const SHADOW_RISK_PATH=resolve(here,'../../../data/shadow-simulator-risk.json')
+const SHADOW_TRADE_LOG_PATH=resolve(here,'../../../logs/shadow-paper/trades.jsonl')
 
 export class ResearchSimulator{
  private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
@@ -82,6 +83,7 @@ export class ResearchSimulator{
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
  private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
+ private shadowRecoveryChecked=false
 
  constructor(private broker:OandaReadOnly){this.load()}
 
@@ -98,6 +100,98 @@ export class ResearchSimulator{
     FIMATHE:{...blankStrategyStats(),...(perf.FIMATHE||{})}
    }
   }catch{}
+ }
+
+ private recoverShadowOpenFromLog(){
+  if(this.shadowRecoveryChecked)return false
+  this.shadowRecoveryChecked=true
+  if(this.state.shadowExperiment.position||!existsSync(SHADOW_TRADE_LOG_PATH))return false
+
+  try{
+   const rows=readFileSync(SHADOW_TRADE_LOG_PATH,'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line=>{try{return JSON.parse(line)}catch{return null}})
+    .filter(Boolean) as any[]
+
+   let latestOpen:any=null
+   let latestClose:any=null
+   for(const row of rows){
+    if(row.event==='SHADOW_PAPER_OPEN')latestOpen=row
+    else if(row.event==='SHADOW_PAPER_CLOSE')latestClose=row
+   }
+
+   if(!latestOpen)return false
+   const openAt=Date.parse(String(latestOpen.at||latestOpen.openedAt||''))
+   const closeAt=latestClose?Date.parse(String(latestClose.at||'')):Number.NEGATIVE_INFINITY
+   if(Number.isFinite(closeAt)&&closeAt>=openAt)return false
+
+   const stateClose=this.state.shadowExperiment.lastAction
+   if(stateClose?.type==='SHADOW_PAPER_CLOSE'){
+    const stateCloseAt=Date.parse(String(stateClose.at||''))
+    if(Number.isFinite(stateCloseAt)&&stateCloseAt>=openAt)return false
+   }
+
+   const marks=rows.filter(row=>
+    row.event==='SHADOW_POSITION_MARK'&&
+    row.symbol===latestOpen.symbol&&
+    Date.parse(String(row.at||''))>=openAt
+   )
+   const lastMark=marks.at(-1)
+   const direction:Direction=latestOpen.direction==='short'?'short':'long'
+   const entry=new Decimal(String(latestOpen.entry))
+   const units=new Decimal(String(latestOpen.units))
+   let peakExit:string|undefined
+   const peakPnlValue=lastMark?.peakUnrealizedPL
+   if(peakPnlValue!==undefined&&units.gt(0)){
+    const distance=new Decimal(String(peakPnlValue)).div(units)
+    peakExit=(direction==='long'?entry.plus(distance):entry.minus(distance)).toString()
+   }
+
+   const matched=Array.isArray(latestOpen.candidate?.matchedConditions)?latestOpen.candidate.matchedConditions:[]
+   const missing=Array.isArray(latestOpen.candidate?.missing)?latestOpen.candidate.missing:[]
+   const reasons=[...matched,...(missing.length?[\`missing: ${missing.join(', ')}\`]:[])]
+
+   this.state.shadowExperiment.position={
+    symbol:String(latestOpen.symbol),
+    direction,
+    units:String(latestOpen.units),
+    entry:String(latestOpen.entry),
+    hardStop:String(lastMark?.hardStop||latestOpen.hardStop),
+    openedAt:String(latestOpen.openedAt||latestOpen.at||new Date().toISOString()),
+    reasons,
+    marginRequired:latestOpen.marginRequired!==undefined?String(latestOpen.marginRequired):undefined,
+    marginAvailable:latestOpen.marginAvailable!==undefined?String(latestOpen.marginAvailable):undefined,
+    marginAfterTrade:latestOpen.marginAfterTrade!==undefined?String(latestOpen.marginAfterTrade):undefined,
+    effectiveLeverage:latestOpen.effectiveLeverage!==undefined?String(latestOpen.effectiveLeverage):undefined,
+    lotSize:latestOpen.lotSize!==undefined?String(latestOpen.lotSize):undefined,
+    peakExit,
+    profitLockActive:!!lastMark?.profitLockActive,
+    trailingActive:!!lastMark?.trailingActive
+   }
+   this.state.shadowExperiment.opens=Math.max(this.state.shadowExperiment.opens||0,1)
+   this.state.shadowExperiment.lastAction={
+    at:new Date().toISOString(),
+    type:'SHADOW_STATE_RECOVERED_FROM_LOG',
+    symbol:latestOpen.symbol,
+    direction,
+    entry:latestOpen.entry,
+    openedAt:latestOpen.openedAt||latestOpen.at,
+    source:'logs/shadow-paper/trades.jsonl'
+   }
+   logShadowTrade({
+    event:'SHADOW_STATE_RECOVERED_FROM_LOG',
+    symbol:latestOpen.symbol,
+    direction,
+    entry:latestOpen.entry,
+    openedAt:latestOpen.openedAt||latestOpen.at,
+    hardStop:this.state.shadowExperiment.position.hardStop
+   })
+   return true
+  }catch(e){
+   logShadowTrade({event:'SHADOW_STATE_RECOVERY_ERROR',error:e instanceof Error?e.message:String(e)})
+   return false
+  }
  }
 
  private save(){
@@ -121,12 +215,19 @@ export class ResearchSimulator{
   const shadowRealized=new Decimal(shadow?.realizedPL||0)
   const referenceEquity=new Decimal(a.equity||0)
 
-  // Self-heal only obviously impossible/corrupted paper state.
+  // A missing/zero balance can happen after moving the repo to a new PC/drive.
+  // Initialize the balance without erasing an open Shadow trade that can be
+  // recovered from the append-only trade log.
+  if(shadowBalance.lte(0)&&shadowRealized.abs().lte(referenceEquity.mul(2))){
+   this.state.shadowExperiment.balance=a.equity
+   changed=true
+  }
+
+  // Self-heal only obviously impossible/corrupted realized P/L.
   // With this simulator's capped risk, realized P/L beyond 200% of the
   // reference account is treated as data corruption, not a trading result.
   const corruptedShadow=
-   shadowBalance.lte(0)||
-   (referenceEquity.gt(0)&&shadowRealized.abs().gt(referenceEquity.mul(2)))
+   referenceEquity.gt(0)&&shadowRealized.abs().gt(referenceEquity.mul(2))
 
   if(corruptedShadow){
    const previous={...shadow}
@@ -147,6 +248,11 @@ export class ResearchSimulator{
    }
    this.shadowRisk.reset(a.equity)
    logShadowTrade({event:'SHADOW_STATE_REPAIRED',reason:'Invalid shadow P/L state detected after cross-symbol quote bug',previous,recoveredBalance:a.equity})
+   changed=true
+  }
+
+  if(!corruptedShadow&&this.recoverShadowOpenFromLog()){
+   this.shadowRisk.recordEquity(this.state.shadowExperiment.balance)
    changed=true
   }
 
