@@ -27,6 +27,8 @@ type Position={
  peakExit?:string
  profitLockActive?:boolean
  trailingActive?:boolean
+ originalHardStop?:string
+ initialRiskCash?:string
 }
 
 type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'FIMATHE'
@@ -167,7 +169,9 @@ export class ResearchSimulator{
     lotSize:latestOpen.lotSize!==undefined?String(latestOpen.lotSize):undefined,
     peakExit,
     profitLockActive:!!lastMark?.profitLockActive,
-    trailingActive:!!lastMark?.trailingActive
+    trailingActive:!!lastMark?.trailingActive,
+    originalHardStop:String(latestOpen.originalHardStop||latestOpen.hardStop),
+    initialRiskCash:latestOpen.initialRiskCash!==undefined?String(latestOpen.initialRiskCash):latestOpen.riskCash!==undefined?String(latestOpen.riskCash):undefined
    }
    this.state.shadowExperiment.opens=Math.max(this.state.shadowExperiment.opens||0,1)
    this.state.shadowExperiment.lastAction={
@@ -358,9 +362,15 @@ export class ResearchSimulator{
   const entry=new Decimal(p.entry)
   const units=new Decimal(p.units)
 
-  // Shadow-only profit protection. STRICT strategy remains untouched.
-  // 1) At +$25 open P/L, move the stop to break-even.
-  // 2) Once peak open P/L reaches +$50, trail 50% of the best profit reached.
+  // Shadow-only R-multiple profit protection. STRICT strategy remains untouched.
+  // R = cash initially at risk if the ORIGINAL hard stop is hit.
+  // 1) At +1R open P/L, move the stop to break-even.
+  // 2) Once peak open P/L reaches +2R, trail 50% of the best profit reached.
+  // This avoids fixed-dollar thresholds behaving differently as account size/risk changes.
+  const originalStop=new Decimal(p.originalHardStop||p.hardStop)
+  const riskCash=p.initialRiskCash
+   ?new Decimal(p.initialRiskCash)
+   :entry.minus(originalStop).abs().mul(units)
   const priorPeak=p.peakExit?new Decimal(p.peakExit):exitDec
   const betterPeak=p.direction==='long'?exitDec.gt(priorPeak):exitDec.lt(priorPeak)
   if(!p.peakExit||betterPeak)p.peakExit=exitDec.toString()
@@ -369,15 +379,15 @@ export class ResearchSimulator{
   const peakPnl=(p.direction==='long'?peakExit.minus(entry):entry.minus(peakExit)).mul(units)
   const currentPnl=this.pnlFor(p,exit)
 
-  if(currentPnl.gte(25)&&!p.profitLockActive){
+  if(riskCash.gt(0)&&currentPnl.gte(riskCash)&&!p.profitLockActive){
    const oldStop=p.hardStop
    p.hardStop=entry.toString()
    p.profitLockActive=true
-   this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString()}
-   logShadowTrade({event:'SHADOW_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString()})
+   this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentPnl.div(riskCash).toString()}
+   logShadowTrade({event:'SHADOW_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentPnl.div(riskCash).toString()})
   }
 
-  if(peakPnl.gte(50)){
+  if(riskCash.gt(0)&&peakPnl.gte(riskCash.mul(2))){
    const protectedPnl=peakPnl.mul(0.5)
    const distance=protectedPnl.div(units)
    const trailingStop=p.direction==='long'?entry.plus(distance):entry.minus(distance)
@@ -387,8 +397,8 @@ export class ResearchSimulator{
     const oldStop=p.hardStop
     p.hardStop=trailingStop.toString()
     p.trailingActive=true
-    this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString()}
-    logShadowTrade({event:'SHADOW_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString()})
+    this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakPnl.div(riskCash).toString()}
+    logShadowTrade({event:'SHADOW_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakPnl.div(riskCash).toString()})
    }
   }
 
@@ -397,7 +407,7 @@ export class ResearchSimulator{
   const unrealized=currentPnl
   const markedEquity=new Decimal(this.state.shadowExperiment.balance).plus(unrealized)
   this.shadowRisk.recordEquity(markedEquity.toString())
-  logShadowTrade({event:'SHADOW_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString(),peakUnrealizedPL:peakPnl.toString(),profitLockActive:!!p.profitLockActive,trailingActive:!!p.trailingActive,markedEquity:markedEquity.toString(),riskLocked:this.shadowRisk.locked()})
+  logShadowTrade({event:'SHADOW_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,originalHardStop:p.originalHardStop||p.hardStop,riskCash:riskCash.toString(),rMultiple:riskCash.gt(0)?unrealized.div(riskCash).toString():null,unrealizedPL:unrealized.toString(),peakUnrealizedPL:peakPnl.toString(),profitLockActive:!!p.profitLockActive,trailingActive:!!p.trailingActive,markedEquity:markedEquity.toString(),riskLocked:this.shadowRisk.locked()})
   if(hit)this.closeShadowPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
  }
 
@@ -432,12 +442,12 @@ export class ResearchSimulator{
   const plan=this.shadowRisk.plan(symbol,direction,fill,this.state.shadowExperiment.balance,reasons)
   const account=await this.broker.account()
   const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
-  this.state.shadowExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,openedAt:new Date().toISOString(),reasons,...margin}
+  this.state.shadowExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,initialRiskCash:plan.riskCash,openedAt:new Date().toISOString(),reasons,...margin}
   this.state.shadowExperiment.opens++
   this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,candidate}
   this.shadowRisk.recordEquity(this.state.shadowExperiment.balance)
   this.save()
-  logShadowTrade({event:'SHADOW_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,...margin,candidate,simulatedOnly:true})
+  logShadowTrade({event:'SHADOW_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,riskCash:plan.riskCash,initialRiskCash:plan.riskCash,...margin,candidate,simulatedOnly:true})
  }
 
  private async captureFimatheMarket(symbol:string){
