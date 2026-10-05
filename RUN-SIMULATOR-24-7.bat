@@ -38,6 +38,11 @@ echo Se o servidor cair, este runner tenta novamente em 10 segundos.
 echo Para parar, feche esta janela ou pressione Ctrl+C.
 echo.
 
+echo Iniciando dashboard...
+start "Tiago Dashboard" /min cmd /c "npm run dev:client >> logs\client-runner.log 2>&1"
+timeout /t 3 /nobreak >nul
+start "" http://127.0.0.1:5173
+
 :loop
 echo [%date% %time%] iniciando servidor >> logs\simulator-runner.log
 call npm run dev:server >> logs\simulator-runner.log 2>&1
