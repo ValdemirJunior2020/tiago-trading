@@ -1,5 +1,5 @@
 import{Decimal}from'decimal.js'
-import type{AccountState,BrokerQuote}from'@profitmind/shared'
+import type{AccountState,BrokerQuote}from'../types.js'
 import{env}from'../config.js'
 export class OandaReadOnly{
  private headers(){if(!env.OANDA_API_TOKEN||!env.OANDA_ACCOUNT_ID)throw new Error('Broker credentials not configured');return{Authorization:`Bearer ${env.OANDA_API_TOKEN}`}}
