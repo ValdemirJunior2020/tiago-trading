@@ -9,7 +9,7 @@ import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
 import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS}from'../config.js'
 import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade}from'./logger.js'
-import type{Direction}from'@profitmind/shared'
+import type{Direction}from'../types.js'
 
 type Position={
  symbol:string
