@@ -4,11 +4,11 @@ import{resolve,dirname}from'node:path'
 import{fileURLToPath}from'node:url'
 import{OandaReadOnly}from'../broker/OandaReadOnly.js'
 import{strategyContext}from'../indicators.js'
-import{evaluate,analyzeCandidate}from'../strategy.js'
+import{evaluate,analyzeCandidate,evaluateNoMacro}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
 import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS}from'../config.js'
-import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade}from'./logger.js'
+import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade,logNoMacroTrade}from'./logger.js'
 import type{Direction}from'../types.js'
 
 type Position={
@@ -31,7 +31,7 @@ type Position={
  initialRiskCash?:string
 }
 
-type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'FIMATHE'
+type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'NO_MACRO_3_OF_3'|'FIMATHE'
 type StrategyStats={
  trades:number
  wins:number
@@ -70,6 +70,16 @@ type State={
   losses:number
   lastAction:any|null
  }
+ noMacroExperiment:{
+  balance:string
+  realizedPL:string
+  position:Position|null
+  opens:number
+  closes:number
+  wins:number
+  losses:number
+  lastAction:any|null
+ }
  strategyPerformance:Record<StrategyName,StrategyStats>
 }
 
@@ -78,14 +88,18 @@ const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
 const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 const SHADOW_RISK_PATH=resolve(here,'../../../data/shadow-simulator-risk.json')
 const SHADOW_TRADE_LOG_PATH=resolve(here,'../../../logs/shadow-paper/trades.jsonl')
+const NO_MACRO_RISK_PATH=resolve(here,'../../../data/no-macro-simulator-risk.json')
+const NO_MACRO_TRADE_LOG_PATH=resolve(here,'../../../logs/no-macro-paper/trades.jsonl')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},noMacroExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),NO_MACRO_3_OF_3:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
  private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
+ private noMacroRisk=new RiskManager(NO_MACRO_RISK_PATH)
  private shadowRecoveryChecked=false
+ private noMacroRecoveryChecked=false
 
  constructor(private broker:OandaReadOnly){this.load()}
 
@@ -95,10 +109,12 @@ export class ResearchSimulator{
    const saved=JSON.parse(readFileSync(STATE_PATH,'utf8'))
    this.state={...this.state,...saved}
    this.state.shadowExperiment={...this.state.shadowExperiment,...(saved.shadowExperiment||{})}
+   this.state.noMacroExperiment={...this.state.noMacroExperiment,...(saved.noMacroExperiment||{})}
    const perf=saved.strategyPerformance||{}
    this.state.strategyPerformance={
     STRICT_4_OF_4:{...blankStrategyStats(),...(perf.STRICT_4_OF_4||{})},
     SHADOW_3_OF_4:{...blankStrategyStats(),...(perf.SHADOW_3_OF_4||{})},
+    NO_MACRO_3_OF_3:{...blankStrategyStats(),...(perf.NO_MACRO_3_OF_3||{})},
     FIMATHE:{...blankStrategyStats(),...(perf.FIMATHE||{})}
    }
   }catch{}
@@ -198,6 +214,76 @@ export class ResearchSimulator{
   }
  }
 
+
+ private recoverNoMacroOpenFromLog(){
+  if(this.noMacroRecoveryChecked)return false
+  this.noMacroRecoveryChecked=true
+  if(this.state.noMacroExperiment.position||!existsSync(NO_MACRO_TRADE_LOG_PATH))return false
+
+  try{
+   const rows=readFileSync(NO_MACRO_TRADE_LOG_PATH,'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line=>{try{return JSON.parse(line)}catch{return null}})
+    .filter(Boolean) as any[]
+
+   let latestOpen:any=null
+   let latestClose:any=null
+   for(const row of rows){
+    if(row.event==='NO_MACRO_PAPER_OPEN')latestOpen=row
+    else if(row.event==='NO_MACRO_PAPER_CLOSE')latestClose=row
+   }
+
+   if(!latestOpen)return false
+   const openAt=Date.parse(String(latestOpen.at||latestOpen.openedAt||''))
+   const closeAt=latestClose?Date.parse(String(latestClose.at||'')):Number.NEGATIVE_INFINITY
+   if(Number.isFinite(closeAt)&&closeAt>=openAt)return false
+
+   const marks=rows.filter(row=>
+    row.event==='NO_MACRO_POSITION_MARK'&&
+    row.symbol===latestOpen.symbol&&
+    Date.parse(String(row.at||''))>=openAt
+   )
+   const lastMark=marks.at(-1)
+   const direction:Direction=latestOpen.direction==='short'?'short':'long'
+   const entry=new Decimal(String(latestOpen.entry))
+   const units=new Decimal(String(latestOpen.units))
+   let peakExit:string|undefined
+   const peakPnlValue=lastMark?.peakUnrealizedPL
+   if(peakPnlValue!==undefined&&units.gt(0)){
+    const distance=new Decimal(String(peakPnlValue)).div(units)
+    peakExit=(direction==='long'?entry.plus(distance):entry.minus(distance)).toString()
+   }
+
+   this.state.noMacroExperiment.position={
+    symbol:String(latestOpen.symbol),
+    direction,
+    units:String(latestOpen.units),
+    entry:String(latestOpen.entry),
+    hardStop:String(lastMark?.hardStop||latestOpen.hardStop),
+    openedAt:String(latestOpen.openedAt||latestOpen.at||new Date().toISOString()),
+    reasons:Array.isArray(latestOpen.reasons)?latestOpen.reasons:['NO_MACRO'],
+    marginRequired:latestOpen.marginRequired!==undefined?String(latestOpen.marginRequired):undefined,
+    marginAvailable:latestOpen.marginAvailable!==undefined?String(latestOpen.marginAvailable):undefined,
+    marginAfterTrade:latestOpen.marginAfterTrade!==undefined?String(latestOpen.marginAfterTrade):undefined,
+    effectiveLeverage:latestOpen.effectiveLeverage!==undefined?String(latestOpen.effectiveLeverage):undefined,
+    lotSize:latestOpen.lotSize!==undefined?String(latestOpen.lotSize):undefined,
+    peakExit,
+    profitLockActive:!!lastMark?.profitLockActive,
+    trailingActive:!!lastMark?.trailingActive,
+    originalHardStop:String(latestOpen.originalHardStop||latestOpen.hardStop),
+    initialRiskCash:latestOpen.initialRiskCash!==undefined?String(latestOpen.initialRiskCash):latestOpen.riskCash!==undefined?String(latestOpen.riskCash):undefined
+   }
+   this.state.noMacroExperiment.opens=Math.max(this.state.noMacroExperiment.opens||0,1)
+   this.state.noMacroExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_STATE_RECOVERED_FROM_LOG',symbol:latestOpen.symbol,direction,entry:latestOpen.entry,openedAt:latestOpen.openedAt||latestOpen.at,source:'logs/no-macro-paper/trades.jsonl'}
+   logNoMacroTrade({event:'NO_MACRO_STATE_RECOVERED_FROM_LOG',symbol:latestOpen.symbol,direction,entry:latestOpen.entry,openedAt:latestOpen.openedAt||latestOpen.at,hardStop:this.state.noMacroExperiment.position.hardStop})
+   return true
+  }catch(e){
+   logNoMacroTrade({event:'NO_MACRO_STATE_RECOVERY_ERROR',error:e instanceof Error?e.message:String(e)})
+   return false
+  }
+ }
+
  private save(){
   mkdirSync(dirname(STATE_PATH),{recursive:true})
   const tmp=STATE_PATH+'.tmp'
@@ -272,6 +358,26 @@ export class ResearchSimulator{
    changed=true
   }
 
+  if(new Decimal(this.state.noMacroExperiment.balance||0).lte(0)){
+   this.state.noMacroExperiment.balance=a.equity
+   this.noMacroRisk.reset(a.equity)
+   changed=true
+  }
+  if(this.recoverNoMacroOpenFromLog()){
+   this.noMacroRisk.recordEquity(this.state.noMacroExperiment.balance)
+   changed=true
+  }
+  const staleNoMacroRisk=
+   this.state.noMacroExperiment.opens===0&&
+   this.state.noMacroExperiment.closes===0&&
+   new Decimal(this.state.noMacroExperiment.realizedPL||0).eq(0)&&
+   this.noMacroRisk.locked()
+  if(staleNoMacroRisk){
+   this.noMacroRisk.reset(a.equity)
+   logNoMacroTrade({event:'NO_MACRO_RISK_RESET',reason:'Stale no-macro risk history cleared',recoveredEquity:a.equity})
+   changed=true
+  }
+
   if(changed)this.save()
  }
 
@@ -280,6 +386,7 @@ export class ResearchSimulator{
   if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime())return
   logSimulator({event:'SIMULATOR_START',endAt:env.SIMULATOR_END_AT,pairs:SIMULATOR_PAIRS})
   logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
+  logNoMacroTrade({event:'NO_MACRO_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
  }
@@ -450,6 +557,97 @@ export class ResearchSimulator{
   logShadowTrade({event:'SHADOW_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,riskCash:plan.riskCash,initialRiskCash:plan.riskCash,...margin,candidate,simulatedOnly:true})
  }
 
+
+ private async manageNoMacroOpen(){
+  const p=this.state.noMacroExperiment.position
+  if(!p)return
+  const q=await this.broker.quote(p.symbol)
+  if(q.symbol!==p.symbol){
+   logNoMacroTrade({event:'NO_MACRO_QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
+   return
+  }
+  const exit=p.direction==='long'?q.bid:q.ask
+  const exitDec=new Decimal(exit)
+  const entry=new Decimal(p.entry)
+  const units=new Decimal(p.units)
+  const originalStop=new Decimal(p.originalHardStop||p.hardStop)
+  const riskCash=p.initialRiskCash?new Decimal(p.initialRiskCash):entry.minus(originalStop).abs().mul(units)
+  const priorPeak=p.peakExit?new Decimal(p.peakExit):exitDec
+  const betterPeak=p.direction==='long'?exitDec.gt(priorPeak):exitDec.lt(priorPeak)
+  if(!p.peakExit||betterPeak)p.peakExit=exitDec.toString()
+
+  const peakExit=new Decimal(p.peakExit)
+  const peakPnl=(p.direction==='long'?peakExit.minus(entry):entry.minus(peakExit)).mul(units)
+  const currentPnl=this.pnlFor(p,exit)
+
+  if(riskCash.gt(0)&&currentPnl.gte(riskCash)&&!p.profitLockActive){
+   const oldStop=p.hardStop
+   p.hardStop=entry.toString()
+   p.profitLockActive=true
+   this.state.noMacroExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentPnl.div(riskCash).toString()}
+   logNoMacroTrade({event:'NO_MACRO_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentPnl.div(riskCash).toString()})
+  }
+
+  if(riskCash.gt(0)&&peakPnl.gte(riskCash.mul(2))){
+   const protectedPnl=peakPnl.mul(0.5)
+   const distance=protectedPnl.div(units)
+   const trailingStop=p.direction==='long'?entry.plus(distance):entry.minus(distance)
+   const currentStop=new Decimal(p.hardStop)
+   const improves=p.direction==='long'?trailingStop.gt(currentStop):trailingStop.lt(currentStop)
+   if(improves){
+    const oldStop=p.hardStop
+    p.hardStop=trailingStop.toString()
+    p.trailingActive=true
+    this.state.noMacroExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakPnl.div(riskCash).toString()}
+    logNoMacroTrade({event:'NO_MACRO_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakPnl.div(riskCash).toString()})
+   }
+  }
+
+  const stop=new Decimal(p.hardStop)
+  const hit=p.direction==='long'?exitDec.lte(stop):exitDec.gte(stop)
+  const markedEquity=new Decimal(this.state.noMacroExperiment.balance).plus(currentPnl)
+  this.noMacroRisk.recordEquity(markedEquity.toString())
+  logNoMacroTrade({event:'NO_MACRO_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,originalHardStop:p.originalHardStop||p.hardStop,riskCash:riskCash.toString(),rMultiple:riskCash.gt(0)?currentPnl.div(riskCash).toString():null,unrealizedPL:currentPnl.toString(),peakUnrealizedPL:peakPnl.toString(),profitLockActive:!!p.profitLockActive,trailingActive:!!p.trailingActive,markedEquity:markedEquity.toString(),riskLocked:this.noMacroRisk.locked()})
+  if(hit)this.closeNoMacroPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
+ }
+
+ private closeNoMacroPosition(exit:string,reason:string){
+  const p=this.state.noMacroExperiment.position
+  if(!p)return
+  const pnl=this.pnlFor(p,exit)
+  const nextBalance=new Decimal(this.state.noMacroExperiment.balance).plus(pnl)
+  this.state.noMacroExperiment.balance=nextBalance.toString()
+  this.state.noMacroExperiment.realizedPL=new Decimal(this.state.noMacroExperiment.realizedPL).plus(pnl).toString()
+  this.state.noMacroExperiment.position=null
+  this.state.noMacroExperiment.closes++
+  if(pnl.gt(0))this.state.noMacroExperiment.wins++
+  else if(pnl.lt(0))this.state.noMacroExperiment.losses++
+  this.state.noMacroExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString()}
+  this.recordStrategyResult('NO_MACRO_3_OF_3',pnl)
+  this.noMacroRisk.recordEquity(nextBalance.toString())
+  this.save()
+  logNoMacroTrade({event:'NO_MACRO_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt})
+ }
+
+ private async maybeOpenNoMacro(symbol:string,signal:ReturnType<typeof evaluateNoMacro>,q:any){
+  if(signal.decision==='WAIT'||this.state.noMacroExperiment.position||this.noMacroRisk.locked())return
+  if(!['EUR_USD','GBP_USD'].includes(symbol)){
+   logNoMacroTrade({event:'NO_MACRO_SIGNAL_SKIPPED',symbol,side:signal.decision,reason:'Cross-currency P/L conversion not yet enabled',signal})
+   return
+  }
+  const direction:Direction=signal.decision==='LONG'?'long':'short'
+  const fill=direction==='long'?q.ask:q.bid
+  const plan=this.noMacroRisk.plan(symbol,direction,fill,this.state.noMacroExperiment.balance,signal.reasons)
+  const account=await this.broker.account()
+  const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
+  this.state.noMacroExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,initialRiskCash:plan.riskCash,openedAt:new Date().toISOString(),reasons:plan.reasons,...margin}
+  this.state.noMacroExperiment.opens++
+  this.state.noMacroExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,reasons:plan.reasons}
+  this.noMacroRisk.recordEquity(this.state.noMacroExperiment.balance)
+  this.save()
+  logNoMacroTrade({event:'NO_MACRO_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,riskCash:plan.riskCash,initialRiskCash:plan.riskCash,...margin,reasons:plan.reasons,simulatedOnly:true})
+ }
+
  private async captureFimatheMarket(symbol:string){
   const now=new Date()
   const minute=now.getUTCMinutes()
@@ -500,6 +698,7 @@ export class ResearchSimulator{
   this.state.lastCandle[symbol]=last.time
   const context=strategyContext(m5,m10)
   const signal=evaluate(context)
+  const noMacroSignal=evaluateNoMacro(context)
   const candidate=analyzeCandidate(context)
   this.state.decisions++
   this.state.lastDecision={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
@@ -529,6 +728,20 @@ export class ResearchSimulator{
    await this.maybeOpenShadow(symbol,candidate,q)
   }
 
+  const currentNoMacro=this.state.noMacroExperiment.position
+  if(currentNoMacro&&currentNoMacro.symbol===symbol&&noMacroSignal.decision!=='WAIT'){
+   const opposite=(currentNoMacro.direction==='long'&&noMacroSignal.decision==='SHORT')||(currentNoMacro.direction==='short'&&noMacroSignal.decision==='LONG')
+   if(opposite){
+    if(q.symbol!==currentNoMacro.symbol){
+     logNoMacroTrade({event:'NO_MACRO_QUOTE_REJECTED',positionSymbol:currentNoMacro.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch on opposite no-macro signal'})
+    }else{
+     const exit=currentNoMacro.direction==='long'?q.bid:q.ask
+     this.closeNoMacroPosition(exit,'OPPOSITE_NO_MACRO')
+    }
+   }
+  }
+  await this.maybeOpenNoMacro(symbol,noMacroSignal,q)
+
   const spreadPct=this.simRisk.spreadPct(q.bid,q.ask).toString()
   const baseEvent={
    event:'CANDLE_DECISION',
@@ -537,6 +750,7 @@ export class ResearchSimulator{
    quote:q,
    indicators:context,
    signal,
+   noMacroSignal,
    candidate,
    spreadPct,
    simulatedBalance:this.state.balance,
@@ -594,6 +808,7 @@ export class ResearchSimulator{
    await this.ensureBalance()
    await this.manageOpen()
    await this.manageShadowOpen()
+   await this.manageNoMacroOpen()
    for(const symbol of SIMULATOR_PAIRS){
     try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
     catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
