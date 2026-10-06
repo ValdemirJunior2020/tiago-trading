@@ -316,7 +316,7 @@ function App(){
           <div>
             <span className="kicker"><ChartNoAxesCombined size={15}/> STRATEGY SCOREBOARD</span>
             <h2>{lang==='pt'?'Qual estratégia está fazendo dinheiro?':'Which strategy is making money?'}</h2>
-            <p>{lang==='pt'?'Resultados separados por estratégia. Só trades fechados contam no placar.':'Results separated by strategy. Only closed trades count in the scoreboard.'}</p>
+            <p>{lang==='pt'?'Resultados separados por estratégia. NO MACRO começa a medir somente após esta atualização; sem mistura com o histórico Shadow.':'Results are separated by strategy. NO MACRO starts measuring only after this update; no mixing with Shadow history.'}</p>
           </div>
           <span className="live-pill"><i/> PAPER DATA</span>
         </div>
@@ -332,6 +332,13 @@ function App(){
             status={sim?.shadowExperiment?.position?(lang==='pt'?'ATIVO • trade aberto':'ACTIVE • trade open'):(lang==='pt'?'ATIVO':'ACTIVE')}
             stats={sim?.strategyPerformance?.SHADOW_3_OF_4}
             lang={lang}
+          />
+          <StrategyPerformanceCard
+            name="NO MACRO 3/3"
+            status={sim?.noMacroExperiment?.position?(lang==='pt'?'TESTE • trade aberto':'TEST • trade open'):(lang==='pt'?'TESTE NOVO • forward':'NEW TEST • forward')}
+            stats={sim?.strategyPerformance?.NO_MACRO_3_OF_3}
+            lang={lang}
+            researchOnly
           />
           <StrategyPerformanceCard
             name="FIMATHE"
@@ -387,14 +394,14 @@ function StrategyPerformanceCard({name,status,stats,lang,researchOnly=false}:{na
   const winRate=trades>0?(wins/trades)*100:0
   const avgWin=wins>0?grossProfit/wins:0
   const avgLoss=losses>0?grossLoss/losses:0
-  const profitFactor=grossLoss>0?grossProfit/grossLoss:grossProfit>0?Infinity:0
+  const profitFactor=grossLoss>0?grossProfit/grossLoss:null
   return <div className="strategy-score-card">
     <div className="strategy-score-head"><div><small>{status}</small><b>{name}</b></div><span className={researchOnly?'research-badge':'paper-badge'}>{researchOnly?'RESEARCH':'PAPER'}</span></div>
     <strong className={net>0?'profit-up':net<0?'profit-down':''}>{signedMoney(net)}</strong>
     <div className="strategy-score-metrics">
       <div><small>{lang==='pt'?'TRADES':'TRADES'}</small><b>{trades}</b></div>
       <div><small>{lang==='pt'?'ACERTO':'WIN RATE'}</small><b>{winRate.toFixed(1)}%</b></div>
-      <div><small>{lang==='pt'?'FATOR LUCRO':'PROFIT FACTOR'}</small><b>{profitFactor===Infinity?'∞':profitFactor.toFixed(2)}</b></div>
+      <div><small>{lang==='pt'?'FATOR LUCRO':'PROFIT FACTOR'}</small><b>{profitFactor==null?'—':profitFactor.toFixed(2)}</b></div>
       <div><small>{lang==='pt'?'MAX DRAWDOWN':'MAX DRAWDOWN'}</small><b>{money(maxDD)}</b></div>
       <div><small>{lang==='pt'?'MÉDIA GANHO':'AVG WIN'}</small><b>{signedMoney(avgWin)}</b></div>
       <div><small>{lang==='pt'?'MÉDIA PERDA':'AVG LOSS'}</small><b>{losses>0?'-'+money(avgLoss):money(0)}</b></div>
