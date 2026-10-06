@@ -307,7 +307,7 @@ h1,h2,p{margin:0}
 
 
 .performance-board{margin-bottom:12px}
-.strategy-score-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 20px 20px}
+.strategy-score-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:0 20px 20px}
 .strategy-score-card{border:1px solid rgba(139,165,204,.12);background:rgba(7,14,24,.52);border-radius:16px;padding:16px;min-width:0}
 .strategy-score-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .strategy-score-head small{display:block;color:#6f839d;font-size:8px;letter-spacing:.1em;margin-bottom:5px}
