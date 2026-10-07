@@ -7,7 +7,7 @@ import{strategyContext}from'../indicators.js'
 import{evaluate,analyzeCandidate,evaluateNoMacro}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
-import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS}from'../config.js'
+import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS,OANDA_DEMO_MIRROR_ENABLED}from'../config.js'
 import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade,logNoMacroTrade}from'./logger.js'
 import type{Direction}from'../types.js'
 
@@ -29,6 +29,10 @@ type Position={
  trailingActive?:boolean
  originalHardStop?:string
  initialRiskCash?:string
+ brokerMirrorTradeId?:string
+ brokerMirrorFillPrice?:string
+ brokerMirrorStop?:string
+ brokerMirrorStatus?:'OPEN'|'CLOSED'|'ERROR'
 }
 
 type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'NO_MACRO_3_OF_3'|'FIMATHE'
@@ -69,6 +73,7 @@ type State={
   wins:number
   losses:number
   lastAction:any|null
+  pendingMirrorCloseTradeId:string|null
  }
  noMacroExperiment:{
   balance:string
@@ -92,7 +97,7 @@ const NO_MACRO_RISK_PATH=resolve(here,'../../../data/no-macro-simulator-risk.jso
 const NO_MACRO_TRADE_LOG_PATH=resolve(here,'../../../logs/no-macro-paper/trades.jsonl')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},noMacroExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),NO_MACRO_3_OF_3:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null,pendingMirrorCloseTradeId:null},noMacroExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),NO_MACRO_3_OF_3:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
@@ -187,7 +192,11 @@ export class ResearchSimulator{
     profitLockActive:!!lastMark?.profitLockActive,
     trailingActive:!!lastMark?.trailingActive,
     originalHardStop:String(latestOpen.originalHardStop||latestOpen.hardStop),
-    initialRiskCash:latestOpen.initialRiskCash!==undefined?String(latestOpen.initialRiskCash):latestOpen.riskCash!==undefined?String(latestOpen.riskCash):undefined
+    initialRiskCash:latestOpen.initialRiskCash!==undefined?String(latestOpen.initialRiskCash):latestOpen.riskCash!==undefined?String(latestOpen.riskCash):undefined,
+    brokerMirrorTradeId:(rows.filter(row=>row.event==='SHADOW_DEMO_MIRROR_OPENED'&&row.symbol===latestOpen.symbol&&Date.parse(String(row.at||''))>=openAt).at(-1)?.tradeId)||undefined,
+    brokerMirrorFillPrice:(rows.filter(row=>row.event==='SHADOW_DEMO_MIRROR_OPENED'&&row.symbol===latestOpen.symbol&&Date.parse(String(row.at||''))>=openAt).at(-1)?.fillPrice)||undefined,
+    brokerMirrorStop:(rows.filter(row=>row.event==='SHADOW_DEMO_MIRROR_OPENED'&&row.symbol===latestOpen.symbol&&Date.parse(String(row.at||''))>=openAt).at(-1)?.hardStop)||undefined,
+    brokerMirrorStatus:(rows.filter(row=>row.event==='SHADOW_DEMO_MIRROR_OPENED'&&row.symbol===latestOpen.symbol&&Date.parse(String(row.at||''))>=openAt).at(-1)?'OPEN':undefined)
    }
    this.state.shadowExperiment.opens=Math.max(this.state.shadowExperiment.opens||0,1)
    this.state.shadowExperiment.lastAction={
@@ -334,7 +343,8 @@ export class ResearchSimulator{
      type:'SHADOW_STATE_REPAIRED',
      reason:'Invalid shadow P/L state detected after cross-symbol quote bug',
      previous
-    }
+    },
+    pendingMirrorCloseTradeId:null
    }
    this.shadowRisk.reset(a.equity)
    logShadowTrade({event:'SHADOW_STATE_REPAIRED',reason:'Invalid shadow P/L state detected after cross-symbol quote bug',previous,recoveredBalance:a.equity})
@@ -385,7 +395,7 @@ export class ResearchSimulator{
   if(!SIMULATOR_ENABLED)return
   if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime())return
   logSimulator({event:'SIMULATOR_START',endAt:env.SIMULATOR_END_AT,pairs:SIMULATOR_PAIRS})
-  logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
+  logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,demoMirrorEnabled:OANDA_DEMO_MIRROR_ENABLED})
   logNoMacroTrade({event:'NO_MACRO_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
@@ -456,6 +466,42 @@ export class ResearchSimulator{
   logTrade({event:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:this.state.balance,reason,openedAt:p.openedAt})
  }
 
+
+ private async syncShadowDemoStop(p:Position){
+  if(!OANDA_DEMO_MIRROR_ENABLED||!p.brokerMirrorTradeId||p.brokerMirrorStatus!=='OPEN')return
+  if(p.brokerMirrorStop===p.hardStop)return
+  try{
+   const r=await this.broker.updatePracticeStopLoss(p.brokerMirrorTradeId,p.hardStop)
+   p.brokerMirrorStop=p.hardStop
+   this.save()
+   logShadowTrade({event:'SHADOW_DEMO_MIRROR_STOP_SYNCED',symbol:p.symbol,tradeId:p.brokerMirrorTradeId,hardStop:p.hardStop,transactionId:r.lastTransactionID})
+  }catch(e){
+   logShadowTrade({event:'SHADOW_DEMO_MIRROR_STOP_ERROR',symbol:p.symbol,tradeId:p.brokerMirrorTradeId,hardStop:p.hardStop,error:e instanceof Error?e.message:String(e)})
+  }
+ }
+
+ private async reconcilePendingShadowMirrorClose(){
+  const tradeId=this.state.shadowExperiment.pendingMirrorCloseTradeId
+  if(!OANDA_DEMO_MIRROR_ENABLED||!tradeId)return
+  try{
+   const r=await this.broker.closePracticeTrade(tradeId)
+   this.state.shadowExperiment.pendingMirrorCloseTradeId=null
+   this.save()
+   logShadowTrade({event:'SHADOW_DEMO_MIRROR_CLOSE_RECONCILED',tradeId,fillPrice:r.fillPrice,realizedPL:r.realizedPL,transactionId:r.transactionId})
+  }catch(e){
+   try{
+    const t=await this.broker.trade(tradeId)
+    if(t?.state==='CLOSED'){
+     this.state.shadowExperiment.pendingMirrorCloseTradeId=null
+     this.save()
+     logShadowTrade({event:'SHADOW_DEMO_MIRROR_ALREADY_CLOSED',tradeId})
+     return
+    }
+   }catch{}
+   logShadowTrade({event:'SHADOW_DEMO_MIRROR_CLOSE_RETRY_ERROR',tradeId,error:e instanceof Error?e.message:String(e)})
+  }
+ }
+
  private async manageShadowOpen(){
   const p=this.state.shadowExperiment.position
   if(!p)return
@@ -509,16 +555,17 @@ export class ResearchSimulator{
    }
   }
 
+  await this.syncShadowDemoStop(p)
   const stop=new Decimal(p.hardStop)
   const hit=p.direction==='long'?exitDec.lte(stop):exitDec.gte(stop)
   const unrealized=currentPnl
   const markedEquity=new Decimal(this.state.shadowExperiment.balance).plus(unrealized)
   this.shadowRisk.recordEquity(markedEquity.toString())
   logShadowTrade({event:'SHADOW_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,originalHardStop:p.originalHardStop||p.hardStop,riskCash:riskCash.toString(),rMultiple:riskCash.gt(0)?unrealized.div(riskCash).toString():null,unrealizedPL:unrealized.toString(),peakUnrealizedPL:peakPnl.toString(),profitLockActive:!!p.profitLockActive,trailingActive:!!p.trailingActive,markedEquity:markedEquity.toString(),riskLocked:this.shadowRisk.locked()})
-  if(hit)this.closeShadowPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
+  if(hit)await this.closeShadowPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
  }
 
- private closeShadowPosition(exit:string,reason:string){
+ private async closeShadowPosition(exit:string,reason:string){
   const p=this.state.shadowExperiment.position
   if(!p)return
   const pnl=this.pnlFor(p,exit)
@@ -530,11 +577,33 @@ export class ResearchSimulator{
   this.state.shadowExperiment.closes++
   if(won)this.state.shadowExperiment.wins++
   else if(pnl.lt(0))this.state.shadowExperiment.losses++
-  this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString()}
+  this.state.shadowExperiment.lastAction={at:new Date().toISOString(),type:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString(),demoMirrorTradeId:p.brokerMirrorTradeId||null}
   this.recordStrategyResult('SHADOW_3_OF_4',pnl)
   this.shadowRisk.recordEquity(nextBalance.toString())
+  if(OANDA_DEMO_MIRROR_ENABLED&&p.brokerMirrorTradeId){
+   this.state.shadowExperiment.pendingMirrorCloseTradeId=p.brokerMirrorTradeId
+  }
   this.save()
-  logShadowTrade({event:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt})
+  logShadowTrade({event:'SHADOW_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt,demoMirrorTradeId:p.brokerMirrorTradeId||null})
+  if(OANDA_DEMO_MIRROR_ENABLED&&p.brokerMirrorTradeId){
+   try{
+    const r=await this.broker.closePracticeTrade(p.brokerMirrorTradeId)
+    this.state.shadowExperiment.pendingMirrorCloseTradeId=null
+    this.save()
+    logShadowTrade({event:'SHADOW_DEMO_MIRROR_CLOSED',symbol:p.symbol,tradeId:p.brokerMirrorTradeId,fillPrice:r.fillPrice,realizedPL:r.realizedPL,transactionId:r.transactionId,localReason:reason})
+   }catch(e){
+    try{
+     const t=await this.broker.trade(p.brokerMirrorTradeId)
+     if(t?.state==='CLOSED'){
+      this.state.shadowExperiment.pendingMirrorCloseTradeId=null
+      this.save()
+      logShadowTrade({event:'SHADOW_DEMO_MIRROR_ALREADY_CLOSED',symbol:p.symbol,tradeId:p.brokerMirrorTradeId,localReason:reason})
+      return
+     }
+    }catch{}
+    logShadowTrade({event:'SHADOW_DEMO_MIRROR_CLOSE_ERROR',symbol:p.symbol,tradeId:p.brokerMirrorTradeId,error:e instanceof Error?e.message:String(e),localReason:reason})
+   }
+  }
  }
 
  private async maybeOpenShadow(symbol:string,candidate:ReturnType<typeof analyzeCandidate>,q:any){
@@ -555,6 +624,26 @@ export class ResearchSimulator{
   this.shadowRisk.recordEquity(this.state.shadowExperiment.balance)
   this.save()
   logShadowTrade({event:'SHADOW_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,riskCash:plan.riskCash,initialRiskCash:plan.riskCash,...margin,candidate,simulatedOnly:true})
+  if(OANDA_DEMO_MIRROR_ENABLED){
+   try{
+    const mirror=await this.broker.openPracticeTrade(symbol,direction,plan.units,plan.hardStop)
+    const p=this.state.shadowExperiment.position
+    if(p&&p.symbol===symbol&&p.direction===direction){
+     p.brokerMirrorTradeId=mirror.tradeId
+     p.brokerMirrorFillPrice=mirror.fillPrice
+     p.brokerMirrorStop=plan.hardStop
+     p.brokerMirrorStatus='OPEN'
+     this.state.shadowExperiment.lastAction={...this.state.shadowExperiment.lastAction,demoMirrorTradeId:mirror.tradeId,demoMirrorFillPrice:mirror.fillPrice,demoMirrorStatus:'OPEN'}
+     this.save()
+    }
+    logShadowTrade({event:'SHADOW_DEMO_MIRROR_OPENED',symbol,direction,units:plan.units,tradeId:mirror.tradeId,fillPrice:mirror.fillPrice,hardStop:plan.hardStop,transactionId:mirror.transactionId,practiceOnly:true})
+   }catch(e){
+    const p=this.state.shadowExperiment.position
+    if(p&&p.symbol===symbol&&p.direction===direction)p.brokerMirrorStatus='ERROR'
+    this.save()
+    logShadowTrade({event:'SHADOW_DEMO_MIRROR_OPEN_ERROR',symbol,direction,units:plan.units,hardStop:plan.hardStop,error:e instanceof Error?e.message:String(e),practiceOnly:true})
+   }
+  }
  }
 
 
@@ -721,7 +810,7 @@ export class ResearchSimulator{
       logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:currentShadow.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch on opposite candidate'})
      }else{
       const exit=currentShadow.direction==='long'?q.bid:q.ask
-      this.closeShadowPosition(exit,'OPPOSITE_3_OF_4')
+      await this.closeShadowPosition(exit,'OPPOSITE_3_OF_4')
      }
     }
    }
@@ -806,6 +895,7 @@ export class ResearchSimulator{
   try{
    if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime()){this.stop();return}
    await this.ensureBalance()
+   await this.reconcilePendingShadowMirrorClose()
    await this.manageOpen()
    await this.manageShadowOpen()
    await this.manageNoMacroOpen()
