@@ -12,7 +12,8 @@ const s = z.object({
   CLIENT_ORIGIN: z.string().default('http://127.0.0.1:5173'),
   OANDA_ACCOUNT_ID: z.string().default(''),
   OANDA_API_TOKEN: z.string().default(''),
-  OANDA_REST_BASE_URL: z.string().default('https://api-fxtrade.oanda.com'),
+  OANDA_REST_BASE_URL: z.string().default('https://api-fxpractice.oanda.com'),
+  OANDA_DEMO_MIRROR_ENABLED: z.string().default('true'),
   OLLAMA_BASE_URL: z.string().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('qwen3:8b'),
   OLLAMA_TIMEOUT_MS: z.coerce.number().default(2000),
@@ -32,6 +33,7 @@ export const LIMITS = Object.freeze({
 })
 
 export const BROKER_MODE = env.OANDA_REST_BASE_URL.includes('fxpractice') ? 'DEMO' : 'LIVE'
+export const OANDA_DEMO_MIRROR_ENABLED = env.OANDA_DEMO_MIRROR_ENABLED.toLowerCase()==='true' && BROKER_MODE==='DEMO'
 
 export const SIMULATOR_PAIRS = env.TRADE_PAIRS.split(',').map(x=>x.trim()).filter(Boolean)
 export const SIMULATOR_ENABLED = env.SIMULATOR_ENABLED.toLowerCase()==='true'
