@@ -3,6 +3,24 @@ import type{AccountState,BrokerQuote}from'../types.js'
 import{env}from'../config.js'
 export class OandaReadOnly{
  private headers(){if(!env.OANDA_API_TOKEN||!env.OANDA_ACCOUNT_ID)throw new Error('Broker credentials not configured');return{Authorization:`Bearer ${env.OANDA_API_TOKEN}`}}
+ private assertPracticeWrite(){
+  if(!env.OANDA_REST_BASE_URL.includes('api-fxpractice.oanda.com'))
+   throw new Error('Demo order blocked: OANDA practice endpoint is required')
+ }
+ private async write(path:string,method:'POST'|'PUT',body:unknown){
+  this.assertPracticeWrite()
+  const r=await fetch(`${env.OANDA_REST_BASE_URL}${path}`,{
+   method,
+   headers:{...this.headers(),'Content-Type':'application/json'},
+   body:JSON.stringify(body)
+  })
+  const b:any=await r.json().catch(()=>({}))
+  if(!r.ok){
+   const detail=b?.errorMessage||b?.errorCode||`Broker HTTP ${r.status}`
+   throw new Error(String(detail))
+  }
+  return b
+ }
  private async get(path:string){
   const retryable=new Set([503,504])
   const maxAttempts=4
@@ -51,6 +69,46 @@ export class OandaReadOnly{
    notionalUsd:notionalUsd.toFixed(2)
   }
  }
+ async openPracticeTrade(symbol:string,direction:'long'|'short',units:string,hardStop:string){
+  const qty=new Decimal(units).abs()
+  if(qty.lte(0))throw new Error('Demo order blocked: units must be positive')
+  const signedUnits=(direction==='long'?qty:qty.neg()).toFixed(0)
+  const b=await this.write(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/orders`,'POST',{
+   order:{
+    type:'MARKET',
+    instrument:symbol,
+    units:signedUnits,
+    timeInForce:'FOK',
+    positionFill:'OPEN_ONLY',
+    stopLossOnFill:{price:String(hardStop),timeInForce:'GTC'}
+   }
+  })
+  const fill=b?.orderFillTransaction
+  const tradeId=fill?.tradeOpened?.tradeID||fill?.tradesOpened?.[0]?.tradeID
+  if(!tradeId)throw new Error('Demo order was not confirmed as an opened trade')
+  return{
+   tradeId:String(tradeId),
+   fillPrice:String(fill?.price||''),
+   transactionId:String(fill?.id||b?.lastTransactionID||'')
+  }
+ }
+ async updatePracticeStopLoss(tradeId:string,price:string){
+  const b=await this.write(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${encodeURIComponent(tradeId)}/orders`,'PUT',{
+   stopLoss:{price:String(price),timeInForce:'GTC'}
+  })
+  return{tradeId,price:String(price),lastTransactionID:String(b?.lastTransactionID||'')}
+ }
+ async closePracticeTrade(tradeId:string){
+  const b=await this.write(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${encodeURIComponent(tradeId)}/close`,'PUT',{units:'ALL'})
+  const fill=b?.orderFillTransaction
+  return{
+   tradeId,
+   fillPrice:String(fill?.price||''),
+   realizedPL:String(fill?.pl||fill?.tradesClosed?.[0]?.realizedPL||'0'),
+   transactionId:String(fill?.id||b?.lastTransactionID||'')
+  }
+ }
+
  async candles(symbol:string,granularity:'M1'|'M5'|'M10'|'M15'|'D'|'W',count=60){
   const b=await this.get(`/v3/instruments/${encodeURIComponent(symbol)}/candles?price=M&granularity=${granularity}&count=${count}`)
   return (b.candles||[]).filter((c:any)=>c.complete&&c.mid).map((c:any)=>({
