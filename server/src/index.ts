@@ -4,7 +4,7 @@ import helmet from'helmet'
 import{OandaReadOnly}from'./broker/OandaReadOnly.js'
 import{RiskManager}from'./risk/RiskManager.js'
 import{ollamaHealth,critique}from'./ollama.js'
-import{env,BROKER_MODE,SIMULATOR_ENABLED}from'./config.js'
+import{env,BROKER_MODE,SIMULATOR_ENABLED,OANDA_DEMO_MIRROR_ENABLED}from'./config.js'
 import{ResearchSimulator}from'./simulator/ResearchSimulator.js'
 
 const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),simulator=new ResearchSimulator(broker)
@@ -24,8 +24,9 @@ app.get('/health',async(_q,res)=>{
     broker:account,
     ollama,
     safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%',riskPerTrade:'0.25%',drawdownPersistence:true},
-    mode:'READ_ONLY_TRADE_PLANNER',
+    mode:OANDA_DEMO_MIRROR_ENABLED?'OANDA_PRACTICE_MIRROR':'READ_ONLY_TRADE_PLANNER',
     brokerMode:BROKER_MODE,
+    demoMirror:{enabled:OANDA_DEMO_MIRROR_ENABLED,strategy:'SHADOW_3_OF_4',practiceOnly:true},
     simulator:{enabled:SIMULATOR_ENABLED,state:simulator.snapshot()}
   })
 })
