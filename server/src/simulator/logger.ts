@@ -48,3 +48,11 @@ export function logNoMacroTrade(event:Record<string,unknown>){
  const row={at:new Date().toISOString(),...event}
  appendFileSync(resolve(dir,'trades.jsonl'),JSON.stringify(row)+'\n','utf8')
 }
+
+
+export function logNoMacroEarlyExitTrade(event:Record<string,unknown>){
+ const dir=resolve(process.cwd(),'..','logs','no-macro-early-exit')
+ mkdirSync(dir,{recursive:true})
+ const row={at:new Date().toISOString(),...event}
+ appendFileSync(resolve(dir,'trades.jsonl'),JSON.stringify(row)+'\n','utf8')
+}
