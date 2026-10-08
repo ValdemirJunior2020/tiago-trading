@@ -90,3 +90,8 @@ The runner verifies the project first, starts Ollama if available, runs the serv
 
 Simulator status:
 `http://127.0.0.1:8790/api/simulator`
+
+## Fimathe experimental paper engine (proxy v1)
+The six course lessons motivate D/W macro context, M1 channel breaks, a neutral zone and stops outside the reference box. They **do not mathematically specify how to pick the channel anchors**. This isolated engine deliberately uses the 20 previous *completed* M1 candles as a channel and requires a breakout aligned with the previous *completed* daily candle's direction. The 20-bar lookback, breakeven at +1R, 2R target and 10x cap are research assumptions, **not the creator's verified Fimathe rules**. It uses bid/ask-aware virtual fills and no broker write methods. $1,000 virtual starting balance, 0.25% risk budget, structural stop no wider than 0.8%, 3% rolling-24h loss guard. Only USD-quoted EUR_USD / GBP_USD paper entries are supported; USD_JPY remains observation-only. The existing strategies and OANDA practice mirror are untouched.
+
+Files to preserve: `data/fimathe-paper-state.json`, `data/fimathe-paper-risk.json`, `logs/fimathe-paper/YYYY-MM-DD.jsonl`, and `logs/fimathe-paper/trades.jsonl`. Never reset these silently. Rule changes require a new experiment/version. The dashboard scoreboard reads closed-trade performance separately from this experiment. Dedicated panel includes balance, open P/L, positions, and decision counts. The raw Fimathe-market logger stays unchanged.

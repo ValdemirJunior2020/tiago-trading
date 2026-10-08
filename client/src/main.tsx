@@ -349,11 +349,35 @@ function App(){
           />
           <StrategyPerformanceCard
             name="FIMATHE"
-            status={lang==='pt'?'COLETANDO DADOS':'DATA COLLECTION'}
+            status={sim?.fimathePaperExperiment?.position?(lang==='pt'?'PAPER • posição aberta':'PAPER • position open'):(lang==='pt'?'PAPER • PROXY EXPERIMENTAL':'PAPER • EXPERIMENTAL PROXY')}
             stats={sim?.strategyPerformance?.FIMATHE}
             lang={lang}
             researchOnly
           />
+        </div>
+      </section>
+
+
+      <section className="panel shadow-lab">
+        <div className="panel-head"><div>
+          <span className="kicker"><Target size={15}/> FIMATHE PAPER • PROXY V1</span>
+          <h2>{lang==='pt'?'Fimathe experimental independente':'Independent experimental Fimathe'}</h2>
+          <p>{lang==='pt'?'Simulação isolada de US$1.000: canal dos 20 candles M1 fechados anteriores, direção do último diário fechado, stop estrutural e alvo experimental 2R. Ainda não representa a fórmula oficial Fimathe. Nunca envia ordens.':'Isolated $1,000 simulation: 20 prior closed M1 bars, last completed daily direction, structural stop and experimental 2R target. Not the official Fimathe method. Never submits orders.'}</p>
+        </div><span className="locked-pill">PAPER ONLY</span></div>
+        <div className="shadow-grid">
+          <div><small>{lang==='pt'?'SALDO':'BALANCE'}</small><strong>{money(sim?.fimathePaperExperiment?.balance)}</strong></div>
+          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><strong>{signedMoney(sim?.fimathePaperExperiment?.realizedPL??0)}</strong></div>
+          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><strong>{signedMoney(sim?.fimathePaperExperiment?.openPnl??0)}</strong></div>
+          <div><small>{lang==='pt'?'DECISÕES':'DECISIONS'}</small><strong>{sim?.fimathePaperExperiment?.decisions??0}</strong></div>
+          <div><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.fimathePaperExperiment?.signals??0}</strong></div>
+          <div><small>{lang==='pt'?'ABERTOS / FECHADOS':'OPEN / CLOSED'}</small><strong>{sim?.fimathePaperExperiment?.opens??0} / {sim?.fimathePaperExperiment?.closes??0}</strong></div>
+          <div><small>W / L</small><strong>{sim?.fimathePaperExperiment?.wins??0} / {sim?.fimathePaperExperiment?.losses??0}</strong></div>
+          <div><small>VERSION</small><strong>{sim?.fimathePaperExperiment?.version??'—'}</strong></div>
+        </div>
+        <div className="shadow-position">
+          <small>{lang==='pt'?'POSIÇÃO FIMATHE':'FIMATHE POSITION'}</small>
+          <b>{sim?.fimathePaperExperiment?.position?String(sim.fimathePaperExperiment.position.symbol).replace('_','/')+' • '+String(sim.fimathePaperExperiment.position.direction).toUpperCase():(lang==='pt'?'Nenhuma aberta':'None open')}</b>
+          <span>{sim?.fimathePaperExperiment?.lastAction?JSON.stringify(sim.fimathePaperExperiment.lastAction):(lang==='pt'?'Aguardando primeiro sinal':'Waiting for first signal')}</span>
         </div>
       </section>
 

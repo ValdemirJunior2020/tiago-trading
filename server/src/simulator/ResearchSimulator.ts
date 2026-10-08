@@ -1,3 +1,4 @@
+import{FimathePaperEngine}from'./FimathePaperEngine.js'
 import{Decimal}from'decimal.js'
 import{existsSync,mkdirSync,readFileSync,renameSync,writeFileSync}from'node:fs'
 import{resolve,dirname}from'node:path'
@@ -116,9 +117,10 @@ export class ResearchSimulator{
  private noMacroRisk=new RiskManager(NO_MACRO_RISK_PATH)
  private noMacroEarlyExitRisk=new RiskManager(NO_MACRO_EARLY_EXIT_RISK_PATH)
  private shadowRecoveryChecked=false
+ private fimathePaper:FimathePaperEngine
  private noMacroRecoveryChecked=false
 
- constructor(private broker:OandaReadOnly){this.load()}
+ constructor(private broker:OandaReadOnly){this.load();this.fimathePaper=new FimathePaperEngine(broker)}
 
  private load(){
   if(!existsSync(STATE_PATH))return
@@ -418,6 +420,7 @@ export class ResearchSimulator{
   logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,demoMirrorEnabled:OANDA_DEMO_MIRROR_ENABLED})
   logNoMacroTrade({event:'NO_MACRO_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,rule:{minAgeHours:3,maxPeakR:'0.10',currentRAtOrBelow:'-0.25'}})
+  this.fimathePaper.start()
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
  }
@@ -428,7 +431,7 @@ export class ResearchSimulator{
   logSimulator({event:'SIMULATOR_STOP'})
  }
 
- snapshot(){return this.state}
+ snapshot(){const paper=this.fimathePaper.snapshot();return {...this.state,fimathePaperExperiment:paper,strategyPerformance:{...this.state.strategyPerformance,FIMATHE:paper.stats}}}
 
  private recordStrategyResult(strategy:StrategyName,pnl:Decimal){
   const s=this.state.strategyPerformance[strategy]
@@ -1038,6 +1041,7 @@ export class ResearchSimulator{
    for(const symbol of SIMULATOR_PAIRS){
     try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
     catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
+     await this.fimathePaper.process(symbol)
    }
    this.save()
   }catch(e){

@@ -56,3 +56,11 @@ export function logNoMacroEarlyExitTrade(event:Record<string,unknown>){
  const row={at:new Date().toISOString(),...event}
  appendFileSync(resolve(dir,'trades.jsonl'),JSON.stringify(row)+'\n','utf8')
 }
+
+// Separate append-only experimental paper logs: never mixed with raw Fimathe market candles.
+export function logFimathePaper(event:Record<string,unknown>,trade=false){
+ const dir=resolve(process.cwd(),'..','logs','fimathe-paper')
+ mkdirSync(dir,{recursive:true})
+ const row={at:new Date().toISOString(),...event}
+ appendFileSync(resolve(dir,trade?'trades.jsonl':`${day()}.jsonl`),JSON.stringify(row)+'\n','utf8')
+}
