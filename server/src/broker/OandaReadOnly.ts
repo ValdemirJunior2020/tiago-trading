@@ -46,6 +46,17 @@ export class OandaReadOnly{
  async quote(symbol:string):Promise<BrokerQuote>{const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/pricing?instruments=${encodeURIComponent(symbol)}`),p=b.prices?.[0];if(!p)throw new Error('Quote unavailable');const bid=new Decimal(p.bids?.[0]?.price),ask=new Decimal(p.asks?.[0]?.price);return{symbol,bid:bid.toString(),ask:ask.toString(),mid:bid.plus(ask).div(2).toString(),timestamp:String(p.time)}}
  async positions(){const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`);return b.trades||[]}
  async trade(tradeId:string){const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${encodeURIComponent(tradeId)}`);return b.trade||null}
+ async pricePrecision(symbol:string){
+  const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/instruments?instruments=${encodeURIComponent(symbol)}`)
+  const i=b.instruments?.[0]
+  const p=Number(i?.displayPrecision)
+  if(!Number.isInteger(p)||p<0||p>10)throw new Error('Instrument display precision unavailable')
+  return p
+ }
+ async formatPrice(symbol:string,price:string){
+  const precision=await this.pricePrecision(symbol)
+  return new Decimal(price).toFixed(precision)
+ }
  async marginRate(symbol:string){
   const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/instruments?instruments=${encodeURIComponent(symbol)}`)
   const i=b.instruments?.[0]
@@ -74,6 +85,7 @@ export class OandaReadOnly{
   const qty=new Decimal(units).abs()
   if(qty.lte(0))throw new Error('Demo order blocked: units must be positive')
   const signedUnits=(direction==='long'?qty:qty.neg()).toFixed(0)
+  const normalizedStop=await this.formatPrice(symbol,hardStop)
   const b=await this.write(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/orders`,'POST',{
    order:{
     type:'MARKET',
@@ -81,7 +93,7 @@ export class OandaReadOnly{
     units:signedUnits,
     timeInForce:'FOK',
     positionFill:'OPEN_ONLY',
-    stopLossOnFill:{price:String(hardStop),timeInForce:'GTC'}
+    stopLossOnFill:{price:normalizedStop,timeInForce:'GTC'}
    }
   })
   const fill=b?.orderFillTransaction
@@ -90,14 +102,16 @@ export class OandaReadOnly{
   return{
    tradeId:String(tradeId),
    fillPrice:String(fill?.price||''),
+   stopPrice:normalizedStop,
    transactionId:String(fill?.id||b?.lastTransactionID||'')
   }
  }
- async updatePracticeStopLoss(tradeId:string,price:string){
+ async updatePracticeStopLoss(tradeId:string,symbol:string,price:string){
+  const normalizedStop=await this.formatPrice(symbol,price)
   const b=await this.write(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${encodeURIComponent(tradeId)}/orders`,'PUT',{
-   stopLoss:{price:String(price),timeInForce:'GTC'}
+   stopLoss:{price:normalizedStop,timeInForce:'GTC'}
   })
-  return{tradeId,price:String(price),lastTransactionID:String(b?.lastTransactionID||'')}
+  return{tradeId,price:normalizedStop,lastTransactionID:String(b?.lastTransactionID||'')}
  }
  async closePracticeTrade(tradeId:string){
   const b=await this.write(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${encodeURIComponent(tradeId)}/close`,'PUT',{units:'ALL'})
