@@ -8,7 +8,7 @@ import{evaluate,analyzeCandidate,evaluateNoMacro}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{critique}from'../ollama.js'
 import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS,OANDA_DEMO_MIRROR_ENABLED}from'../config.js'
-import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade,logNoMacroTrade}from'./logger.js'
+import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade,logNoMacroTrade,logNoMacroEarlyExitTrade}from'./logger.js'
 import type{Direction}from'../types.js'
 
 type Position={
@@ -35,7 +35,7 @@ type Position={
  brokerMirrorStatus?:'OPEN'|'CLOSED'|'ERROR'
 }
 
-type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'NO_MACRO_3_OF_3'|'FIMATHE'
+type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'NO_MACRO_3_OF_3'|'NO_MACRO_EARLY_EXIT_3H'|'FIMATHE'
 type StrategyStats={
  trades:number
  wins:number
@@ -85,6 +85,16 @@ type State={
   losses:number
   lastAction:any|null
  }
+ noMacroEarlyExitExperiment:{
+  balance:string
+  realizedPL:string
+  position:Position|null
+  opens:number
+  closes:number
+  wins:number
+  losses:number
+  lastAction:any|null
+ }
  strategyPerformance:Record<StrategyName,StrategyStats>
 }
 
@@ -95,14 +105,16 @@ const SHADOW_RISK_PATH=resolve(here,'../../../data/shadow-simulator-risk.json')
 const SHADOW_TRADE_LOG_PATH=resolve(here,'../../../logs/shadow-paper/trades.jsonl')
 const NO_MACRO_RISK_PATH=resolve(here,'../../../data/no-macro-simulator-risk.json')
 const NO_MACRO_TRADE_LOG_PATH=resolve(here,'../../../logs/no-macro-paper/trades.jsonl')
+const NO_MACRO_EARLY_EXIT_RISK_PATH=resolve(here,'../../../data/no-macro-early-exit-risk.json')
 
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null,pendingMirrorCloseTradeId:null},noMacroExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),NO_MACRO_3_OF_3:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
+ private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null,pendingMirrorCloseTradeId:null},noMacroExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},noMacroEarlyExitExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),NO_MACRO_3_OF_3:blankStrategyStats(),NO_MACRO_EARLY_EXIT_3H:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private simRisk=new RiskManager(RISK_PATH)
  private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
  private noMacroRisk=new RiskManager(NO_MACRO_RISK_PATH)
+ private noMacroEarlyExitRisk=new RiskManager(NO_MACRO_EARLY_EXIT_RISK_PATH)
  private shadowRecoveryChecked=false
  private noMacroRecoveryChecked=false
 
@@ -115,11 +127,13 @@ export class ResearchSimulator{
    this.state={...this.state,...saved}
    this.state.shadowExperiment={...this.state.shadowExperiment,...(saved.shadowExperiment||{})}
    this.state.noMacroExperiment={...this.state.noMacroExperiment,...(saved.noMacroExperiment||{})}
+   this.state.noMacroEarlyExitExperiment={...this.state.noMacroEarlyExitExperiment,...(saved.noMacroEarlyExitExperiment||{})}
    const perf=saved.strategyPerformance||{}
    this.state.strategyPerformance={
     STRICT_4_OF_4:{...blankStrategyStats(),...(perf.STRICT_4_OF_4||{})},
     SHADOW_3_OF_4:{...blankStrategyStats(),...(perf.SHADOW_3_OF_4||{})},
     NO_MACRO_3_OF_3:{...blankStrategyStats(),...(perf.NO_MACRO_3_OF_3||{})},
+    NO_MACRO_EARLY_EXIT_3H:{...blankStrategyStats(),...(perf.NO_MACRO_EARLY_EXIT_3H||{})},
     FIMATHE:{...blankStrategyStats(),...(perf.FIMATHE||{})}
    }
   }catch{}
@@ -388,6 +402,12 @@ export class ResearchSimulator{
    changed=true
   }
 
+  if(new Decimal(this.state.noMacroEarlyExitExperiment.balance||0).lte(0)){
+   this.state.noMacroEarlyExitExperiment.balance=a.equity
+   this.noMacroEarlyExitRisk.reset(a.equity)
+   changed=true
+  }
+
   if(changed)this.save()
  }
 
@@ -397,6 +417,7 @@ export class ResearchSimulator{
   logSimulator({event:'SIMULATOR_START',endAt:env.SIMULATOR_END_AT,pairs:SIMULATOR_PAIRS})
   logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,demoMirrorEnabled:OANDA_DEMO_MIRROR_ENABLED})
   logNoMacroTrade({event:'NO_MACRO_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
+  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,rule:{minAgeHours:3,maxPeakR:'0.10',currentRAtOrBelow:'-0.25'}})
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
  }
@@ -737,6 +758,106 @@ export class ResearchSimulator{
   logNoMacroTrade({event:'NO_MACRO_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,riskCash:plan.riskCash,initialRiskCash:plan.riskCash,...margin,reasons:plan.reasons,simulatedOnly:true})
  }
 
+
+ private async manageNoMacroEarlyExitOpen(){
+  const p=this.state.noMacroEarlyExitExperiment.position
+  if(!p)return
+  const q=await this.broker.quote(p.symbol)
+  if(q.symbol!==p.symbol){
+   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
+   return
+  }
+  const exit=p.direction==='long'?q.bid:q.ask
+  const exitDec=new Decimal(exit)
+  const entry=new Decimal(p.entry)
+  const units=new Decimal(p.units)
+  const originalStop=new Decimal(p.originalHardStop||p.hardStop)
+  const riskCash=p.initialRiskCash?new Decimal(p.initialRiskCash):entry.minus(originalStop).abs().mul(units)
+  const priorPeak=p.peakExit?new Decimal(p.peakExit):exitDec
+  const betterPeak=p.direction==='long'?exitDec.gt(priorPeak):exitDec.lt(priorPeak)
+  if(!p.peakExit||betterPeak)p.peakExit=exitDec.toString()
+
+  const peakExit=new Decimal(p.peakExit)
+  const peakPnl=(p.direction==='long'?peakExit.minus(entry):entry.minus(peakExit)).mul(units)
+  const currentPnl=this.pnlFor(p,exit)
+  const currentR=riskCash.gt(0)?currentPnl.div(riskCash):new Decimal(0)
+  const peakR=riskCash.gt(0)?peakPnl.div(riskCash):new Decimal(0)
+  const ageHours=Math.max(0,(Date.now()-Date.parse(p.openedAt))/3600000)
+
+  if(riskCash.gt(0)&&currentPnl.gte(riskCash)&&!p.profitLockActive){
+   const oldStop=p.hardStop
+   p.hardStop=entry.toString()
+   p.profitLockActive=true
+   this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentR.toString()}
+   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentR.toString()})
+  }
+
+  if(riskCash.gt(0)&&peakPnl.gte(riskCash.mul(2))){
+   const protectedPnl=peakPnl.mul(0.5)
+   const distance=protectedPnl.div(units)
+   const trailingStop=p.direction==='long'?entry.plus(distance):entry.minus(distance)
+   const currentStop=new Decimal(p.hardStop)
+   const improves=p.direction==='long'?trailingStop.gt(currentStop):trailingStop.lt(currentStop)
+   if(improves){
+    const oldStop=p.hardStop
+    p.hardStop=trailingStop.toString()
+    p.trailingActive=true
+    this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakR.toString()}
+    logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakR.toString()})
+   }
+  }
+
+  const markedEquity=new Decimal(this.state.noMacroEarlyExitExperiment.balance).plus(currentPnl)
+  this.noMacroEarlyExitRisk.recordEquity(markedEquity.toString())
+  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,riskCash:riskCash.toString(),currentR:currentR.toString(),peakR:peakR.toString(),ageHours,unrealizedPL:currentPnl.toString(),peakUnrealizedPL:peakPnl.toString(),markedEquity:markedEquity.toString()})
+
+  if(ageHours>=3&&peakR.lt('0.10')&&currentR.lte('-0.25')){
+   this.closeNoMacroEarlyExitPosition(exit,'WEAK_MOMENTUM_3H')
+   return
+  }
+
+  const stop=new Decimal(p.hardStop)
+  const hit=p.direction==='long'?exitDec.lte(stop):exitDec.gte(stop)
+  if(hit)this.closeNoMacroEarlyExitPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
+ }
+
+ private closeNoMacroEarlyExitPosition(exit:string,reason:string){
+  const p=this.state.noMacroEarlyExitExperiment.position
+  if(!p)return
+  const pnl=this.pnlFor(p,exit)
+  const nextBalance=new Decimal(this.state.noMacroEarlyExitExperiment.balance).plus(pnl)
+  this.state.noMacroEarlyExitExperiment.balance=nextBalance.toString()
+  this.state.noMacroEarlyExitExperiment.realizedPL=new Decimal(this.state.noMacroEarlyExitExperiment.realizedPL).plus(pnl).toString()
+  this.state.noMacroEarlyExitExperiment.position=null
+  this.state.noMacroEarlyExitExperiment.closes++
+  if(pnl.gt(0))this.state.noMacroEarlyExitExperiment.wins++
+  else if(pnl.lt(0))this.state.noMacroEarlyExitExperiment.losses++
+  this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString()}
+  this.recordStrategyResult('NO_MACRO_EARLY_EXIT_3H',pnl)
+  this.noMacroEarlyExitRisk.recordEquity(nextBalance.toString())
+  this.save()
+  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt})
+ }
+
+ private async maybeOpenNoMacroEarlyExit(symbol:string,signal:ReturnType<typeof evaluateNoMacro>,q:any){
+  if(signal.decision==='WAIT'||this.state.noMacroEarlyExitExperiment.position||this.noMacroEarlyExitRisk.locked())return
+  if(!['EUR_USD','GBP_USD'].includes(symbol)){
+   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_SIGNAL_SKIPPED',symbol,side:signal.decision,reason:'Cross-currency P/L conversion not yet enabled',signal})
+   return
+  }
+  const direction:Direction=signal.decision==='LONG'?'long':'short'
+  const fill=direction==='long'?q.ask:q.bid
+  const plan=this.noMacroEarlyExitRisk.plan(symbol,direction,fill,this.state.noMacroEarlyExitExperiment.balance,signal.reasons)
+  const account=await this.broker.account()
+  const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
+  this.state.noMacroEarlyExitExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,initialRiskCash:plan.riskCash,openedAt:new Date().toISOString(),reasons:plan.reasons,...margin}
+  this.state.noMacroEarlyExitExperiment.opens++
+  this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,reasons:plan.reasons}
+  this.noMacroEarlyExitRisk.recordEquity(this.state.noMacroEarlyExitExperiment.balance)
+  this.save()
+  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,...margin,reasons:plan.reasons,rule:{minAgeHours:3,maxPeakR:'0.10',currentRAtOrBelow:'-0.25'},simulatedOnly:true})
+ }
+
  private async captureFimatheMarket(symbol:string){
   const now=new Date()
   const minute=now.getUTCMinutes()
@@ -831,6 +952,20 @@ export class ResearchSimulator{
   }
   await this.maybeOpenNoMacro(symbol,noMacroSignal,q)
 
+  const currentNoMacroEarly=this.state.noMacroEarlyExitExperiment.position
+  if(currentNoMacroEarly&&currentNoMacroEarly.symbol===symbol&&noMacroSignal.decision!=='WAIT'){
+   const opposite=(currentNoMacroEarly.direction==='long'&&noMacroSignal.decision==='SHORT')||(currentNoMacroEarly.direction==='short'&&noMacroSignal.decision==='LONG')
+   if(opposite){
+    if(q.symbol!==currentNoMacroEarly.symbol){
+     logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_QUOTE_REJECTED',positionSymbol:currentNoMacroEarly.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch on opposite no-macro signal'})
+    }else{
+     const exit=currentNoMacroEarly.direction==='long'?q.bid:q.ask
+     this.closeNoMacroEarlyExitPosition(exit,'OPPOSITE_NO_MACRO')
+    }
+   }
+  }
+  await this.maybeOpenNoMacroEarlyExit(symbol,noMacroSignal,q)
+
   const spreadPct=this.simRisk.spreadPct(q.bid,q.ask).toString()
   const baseEvent={
    event:'CANDLE_DECISION',
@@ -899,6 +1034,7 @@ export class ResearchSimulator{
    await this.manageOpen()
    await this.manageShadowOpen()
    await this.manageNoMacroOpen()
+   await this.manageNoMacroEarlyExitOpen()
    for(const symbol of SIMULATOR_PAIRS){
     try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
     catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
