@@ -471,7 +471,7 @@ export class ResearchSimulator{
   if(!OANDA_DEMO_MIRROR_ENABLED||!p.brokerMirrorTradeId||p.brokerMirrorStatus!=='OPEN')return
   if(p.brokerMirrorStop===p.hardStop)return
   try{
-   const r=await this.broker.updatePracticeStopLoss(p.brokerMirrorTradeId,p.hardStop)
+   const r=await this.broker.updatePracticeStopLoss(p.brokerMirrorTradeId,p.symbol,p.hardStop)
    p.brokerMirrorStop=p.hardStop
    this.save()
    logShadowTrade({event:'SHADOW_DEMO_MIRROR_STOP_SYNCED',symbol:p.symbol,tradeId:p.brokerMirrorTradeId,hardStop:p.hardStop,transactionId:r.lastTransactionID})
@@ -631,12 +631,12 @@ export class ResearchSimulator{
     if(p&&p.symbol===symbol&&p.direction===direction){
      p.brokerMirrorTradeId=mirror.tradeId
      p.brokerMirrorFillPrice=mirror.fillPrice
-     p.brokerMirrorStop=plan.hardStop
+     p.brokerMirrorStop=mirror.stopPrice
      p.brokerMirrorStatus='OPEN'
      this.state.shadowExperiment.lastAction={...this.state.shadowExperiment.lastAction,demoMirrorTradeId:mirror.tradeId,demoMirrorFillPrice:mirror.fillPrice,demoMirrorStatus:'OPEN'}
      this.save()
     }
-    logShadowTrade({event:'SHADOW_DEMO_MIRROR_OPENED',symbol,direction,units:plan.units,tradeId:mirror.tradeId,fillPrice:mirror.fillPrice,hardStop:plan.hardStop,transactionId:mirror.transactionId,practiceOnly:true})
+    logShadowTrade({event:'SHADOW_DEMO_MIRROR_OPENED',symbol,direction,units:plan.units,tradeId:mirror.tradeId,fillPrice:mirror.fillPrice,hardStopLocal:plan.hardStop,hardStopOanda:mirror.stopPrice,transactionId:mirror.transactionId,practiceOnly:true})
    }catch(e){
     const p=this.state.shadowExperiment.position
     if(p&&p.symbol===symbol&&p.direction===direction)p.brokerMirrorStatus='ERROR'
