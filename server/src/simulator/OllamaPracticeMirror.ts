@@ -5,14 +5,15 @@ import {Decimal} from 'decimal.js'
 import {env} from '../config.js'
 import {OllamaPracticeBroker,ollamaClientId,isTagged,OLLAMA_TRADE_TAG} from '../broker/OllamaPracticeBroker.js'
 import type{OpenSpec}from '../broker/OllamaPracticeBroker.js'
+import type{BrokerSignal}from './OllamaPaperEngine.js'
 
 type PaperPosition={symbol:string;direction:'long'|'short';entry:string;units:string;stop:string;openedAt:string}
-export type PaperView={position:PaperPosition|null;lastDecision?:{decision:string}|null}
+export type PaperView={position:PaperPosition|null;lastDecision?:{decision:string}|null;lastBrokerSignal?:BrokerSignal|null}
 type ShadowView={position?:{symbol:string}|null;pendingMirrorCloseTradeId?:string|null}
 type Intent={paperKey:string;clientId:string;symbol:'EUR_USD'|'GBP_USD';direction:'long'|'short';units:string;stop:string;
  status:'OPENING'|'ACTIVE'|'CLOSE_PENDING'|'REVIEW_REQUIRED';tradeId:string|null;fillPrice:string|null;startedAt:string}
 type Closed={tradeId:string;symbol:string;direction:'long'|'short';realizedPL:string;closedAt:string;source:'OANDA_API';clientId:string}
-type State={version:1;initialized:boolean;startedAt:string;lastSeenPaperKey:string|null;active:Intent|null;
+type State={version:1;initialized:boolean;startedAt:string;lastSeenPaperKey:string|null;signalModeInitialized?:boolean;lastSeenSignalKey?:string|null;brokerOpenPL?:string|null;brokerOpenPLAt?:string|null;active:Intent|null;
  closed:Closed[];status:string;lastError:string|null;lastUpdate:string|null;events:Array<{at:string;event:string;detail:string}>}
 type Broker=Pick<OllamaPracticeBroker,'validateOpen'|'open'|'trade'|'findTagged'|'syncStop'|'close'|'openTrades'>
 type Opts={baseDir?:string;logDir?:string;broker?:Broker;now?:()=>Date}
@@ -51,14 +52,16 @@ export class OllamaPracticeMirror{
   const totals=this.state.closed.reduce((sum,t)=>sum.plus(t.realizedPL),new Decimal(0))
   const active=this.state.active
   return{
-   source:'OANDA_API',mode:'PRACTICE_ONLY',tag:OLLAMA_TRADE_TAG,enabled:isIndependentPracticeEnabled(),
+   source:'OANDA_API',mode:'PRACTICE_ONLY',execution:'BROKER_ONLY',tag:OLLAMA_TRADE_TAG,enabled:isIndependentPracticeEnabled(),
    status:this.state.status,latestError:this.state.lastError,updatedAt:this.state.lastUpdate,
    tradeId:active?.tradeId??null,activeSymbol:active?.symbol??null,activeDirection:active?.direction??null,
    activeStatus:active?.status??null,brokerFillPrice:active?.fillPrice??null,
    mirroredStop:active?.stop??null,closedTrades:this.state.closed.length,
+   brokerOpenPL:active?.tradeId?this.state.brokerOpenPL??null:null,
+   brokerOpenPLAt:active?.tradeId?this.state.brokerOpenPLAt??null:null,
    realizedPL:totals.toFixed(2),history:this.state.closed.slice(-8).reverse(),
    events:this.state.events.slice(0,8),isolatedBudgetUsd:1000,
-   warning:'Shared OANDA account equity/margin; strategy P/L based only on broker-tagged trades. Existing paper position is never retroactively opened.'
+   warning:'OANDA Practice only. Shared account equity/margin. Confirmed Ollama trades only; historical paper positions are NOT submitted.'
   }
  }
  private save(){
@@ -87,7 +90,8 @@ export class OllamaPracticeMirror{
     realizedPL:String(realizedPL),closedAt:this.now().toISOString(),source:'OANDA_API'})
   }
   this.state.active=null
-  this.state.status='WAITING_NEW_PAPER_SIGNAL';this.state.lastError=null
+  this.state.brokerOpenPL=null;this.state.brokerOpenPLAt=null
+  this.state.status='WAITING_NEW_OLLAMA_SIGNAL';this.state.lastError=null
   this.note('OLLAMA_OANDA_TRADE_CLOSED','Broker confirmed closure, official realized P/L '+realizedPL)
  }
  private async reconcileIntent(){
@@ -144,6 +148,80 @@ export class OllamaPracticeMirror{
    }catch(e){this.state.lastError='Stop sync failed (broker original stop remains): '+String(e);this.note('OLLAMA_OANDA_STOP_ERROR',this.state.lastError)}
   }
  }
+ // Direct signal mode: the old paper position is NEVER used for broker entry or closure.
+ // Persist intent before POST and never retry an ambiguous OANDA execution.
+ private async brokerSignalTick(view:PaperView){
+  const signal=view.lastBrokerSignal??null
+  const k=signal?.key??null
+  if(!this.state.signalModeInitialized){
+   this.state.signalModeInitialized=true
+   this.state.lastSeenSignalKey=k
+   if(!this.state.active)this.state.status='WAITING_NEW_OLLAMA_SIGNAL'
+   this.note('OLLAMA_BROKER_ONLY_READY','No virtual order execution. Awaiting next new qualified AI signal; old signals skipped.')
+   if(this.state.active)await this.manageBrokerActive()
+   return
+  }
+  if(this.state.active){
+   // A new signal received while a trade is open is consumed, not queued for late entry.
+   if(k&&k!==this.state.lastSeenSignalKey){this.state.lastSeenSignalKey=k;this.save()}
+   await this.manageBrokerActive()
+   return
+  }
+  if(!signal||!k||k===this.state.lastSeenSignalKey)return
+  // The key is consumed BEFORE network requests, including preflight failures.
+  this.state.lastSeenSignalKey=k;this.save()
+  if(signal.action!=='OPEN'||!['EUR_USD','GBP_USD'].includes(signal.symbol)||
+   !['long','short'].includes(signal.direction)||!Number.isFinite(Date.parse(signal.at))||
+   Math.abs(this.now().getTime()-Date.parse(signal.at))>120000){
+   this.blocked('Old or invalid Ollama OANDA signal; no order submitted')
+   return
+  }
+  const today=this.now().toISOString().slice(0,10)
+  const dailyRealized=this.state.closed.filter(x=>x.closedAt.slice(0,10)===today)
+   .reduce((sum,x)=>sum.plus(x.realizedPL),new Decimal(0))
+  if(dailyRealized.lte(-30)){this.blocked('OLLAMA_DAILY_LOSS_LIMIT: broker-closed P/L at or below -30 USD');return}
+  const clientId=ollamaClientId(k,signal.symbol)
+  const spec:OpenSpec={symbol:signal.symbol,direction:signal.direction,units:signal.units,
+   hardStop:signal.stop,target:signal.target,referencePrice:signal.entry,clientId}
+  try{
+   const existing=await this.broker.openTrades()
+   if(existing.some(t=>isTagged(t))){this.blocked('Ollama-tagged OANDA trade already open','REVIEW_REQUIRED');return}
+   const duplicates=await this.broker.findTagged(clientId)
+   if(duplicates.length){this.blocked('Trade with same Ollama signal key already exists in OANDA','REVIEW_REQUIRED');return}
+   await this.broker.validateOpen(spec,this.getShadow().position?.symbol||null)
+  }catch(e){this.blocked('Broker refused Ollama signal, no order sent: '+String(e));return}
+  const intent:Intent={paperKey:k,clientId,symbol:signal.symbol,direction:signal.direction,units:signal.units,
+   stop:signal.stop,status:'OPENING',tradeId:null,fillPrice:null,startedAt:this.now().toISOString()}
+  this.state.active=intent;this.state.status='OPENING';this.save()
+  try{
+   const result=await this.broker.open(spec)
+   intent.tradeId=result.tradeId;intent.fillPrice=result.fillPrice;intent.status='ACTIVE'
+   this.state.status='RECONCILING'
+   this.note('OLLAMA_OANDA_OPEN_CONFIRMED','Broker accepted direct AI signal, Trade ID '+result.tradeId)
+   await this.reconcileIntent()
+  }catch(e){
+   this.state.status='REVIEW_REQUIRED';intent.status='REVIEW_REQUIRED'
+   this.state.lastError='OANDA order outcome uncertain. No automatic duplicate allowed: '+String(e)
+   this.note('OLLAMA_OANDA_OPEN_REVIEW',this.state.lastError)
+  }
+ }
+ private async manageBrokerActive(){
+  const active=this.state.active
+  if(!active)return
+  await this.reconcileIntent()
+  if(!this.state.active||this.state.status==='REVIEW_REQUIRED')return
+  const t=await this.broker.trade(active.tradeId!)
+  if(!t||!isTagged(t,active.clientId)||t.instrument!==active.symbol){
+   this.blocked('Trade ownership mismatch during broker-only monitoring','REVIEW_REQUIRED');return
+  }
+  if(t.state==='CLOSED'){await this.confirmedClosed(active,String(t.realizedPL??'NaN'));return}
+  if(t.state!=='OPEN'){this.blocked('Broker trade status uncertain','REVIEW_REQUIRED');return}
+  if(t.unrealizedPL!==undefined&&Number.isFinite(Number(t.unrealizedPL))){
+   this.state.brokerOpenPL=String(t.unrealizedPL)
+   this.state.brokerOpenPLAt=this.now().toISOString()
+  }else{this.state.brokerOpenPL=null;this.state.brokerOpenPLAt=null}
+  this.state.status='BROKER_OPEN';this.save()
+ }
  private async tick(){
   if(this.busy)return
   this.busy=true
@@ -153,7 +231,9 @@ export class OllamaPracticeMirror{
     return
    }
    if(this.state.status==='REVIEW_REQUIRED')return
-   const p=this.getPaper().position
+   const view=this.getPaper()
+   if(view.lastBrokerSignal!==undefined){await this.brokerSignalTick(view);return}
+   const p=view.position
    const k=key(p)
    if(!this.state.initialized){
     // No broker retroactive order for an already-open paper position.
