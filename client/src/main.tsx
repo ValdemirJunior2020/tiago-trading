@@ -10,6 +10,18 @@ import'./styles.css'
 
 type Lang='en'|'pt'
 type Quote={symbol:string;bid:string;ask:string;mid:string;timestamp:string}
+function ollamaOandaStatus(status:string|undefined,lang:Lang){
+ const label:Record<string,[string,string]>={
+  MARKET_CLOSED:['MERCADO FECHADO','MARKET CLOSED'],
+  WAITING_SHADOW_FREE:['AGUARDANDO PAR LIVRE','WAITING FOR FREE PAIR'],
+  WAITING_NEW_OLLAMA_SIGNAL:['AGUARDANDO NOVO SINAL','WAITING FOR NEW SIGNAL'],
+  BROKER_OPEN:['TRADE CONFIRMADO NA OANDA','OANDA TRADE OPEN'],
+  REVIEW_REQUIRED:['REVISAR TRADE NA OANDA','REVIEW OANDA TRADE'],
+  BLOCKED:['ORDEM NÃO ENVIADA','ORDER NOT SENT'],
+  DISABLED_OR_NOT_PRACTICE:['EXECUÇÃO DESATIVADA','EXECUTION DISABLED']
+ }
+ return label[status||'']?.[lang==='pt'?0:1]??status??'—'
+}
 
 const copy={
   en:{
@@ -377,7 +389,7 @@ function App(){
             researchOnly
           />
           <div className="strategy-score-card ollama-strategy-card">
-            <div className="strategy-score-head"><b>OLLAMA • OANDA PRACTICE</b><span>{ollamaMirror?.status??'WAITING'}</span></div>
+            <div className="strategy-score-head"><b>OLLAMA • OANDA PRACTICE</b><span>{ollamaOandaStatus(ollamaMirror?.status,lang)}</span></div>
             <div className="shadow-grid">
               <div><small>{lang==='pt'?'LUCRO CONFIRMADO':'CONFIRMED P/L'}</small><strong>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</strong></div>
               <div><small>TRADE ID</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
@@ -436,7 +448,7 @@ function App(){
           <div className="ollama-oanda-head">
             <div>
               <small>OANDA PRACTICE • OLLAMA • {lang==='pt'?'FONTE OFICIAL':'BROKER SOURCE'}</small>
-              <b>{ollamaMirror?.status??(lang==='pt'?'Aguardando integração':'Waiting for mirror status')}</b>
+              <b>{ollamaOandaStatus(ollamaMirror?.status,lang)}</b>
             </div>
             <span>{lang==='pt'?'MESMA CONTA • TRADE ID ISOLADO':'SAME ACCOUNT • SEPARATE TRADE ID'}</span>
           </div>
@@ -449,7 +461,16 @@ function App(){
           <p>{lang==='pt'
             ?'Trades exclusivos do Ollama confirmados pela corretora. O saldo e a margem continuam compartilhados com Shadow. Nenhum ganho virtual é contabilizado.'
              :'Only broker-verified trades tagged to Ollama. Account equity and margin are shared with Shadow. No virtual profit is counted.'}</p>
-          {ollamaMirror?.latestError&&<p className="ollama-oanda-warning">⚠ {String(ollamaMirror.latestError)}</p>}
+          {ollamaMirror?.status==='MARKET_CLOSED'&&<p className="ollama-market-closed">
+            {lang==='pt'
+              ?'Mercado Forex da OANDA fechado: sexta às 16h59 até domingo às 17h05 (Nova York). Os próximos sinais serão analisados quando houver cotações válidas; nenhuma ordem será enviada fora do horário.'
+              :'OANDA Forex market closed: Friday 4:59 PM to Sunday 5:05 PM (New York). Fresh quotes and new signals resume during market hours; no off-hours order is submitted.'}
+          </p>}
+          {ollamaMirror?.latestError&&<p className="ollama-oanda-warning">{
+            String(ollamaMirror.latestError).includes('SHADOW_PRIORITY')
+             ?(lang==='pt'?'Último sinal ignorado: Shadow 3/4 já estava operando esse par. Nenhuma ordem Ollama foi enviada.':'Previous signal skipped: Shadow 3/4 already owned the instrument. No Ollama order sent.')
+             :String(ollamaMirror.latestError)}
+          </p>}
           {ollamaMirror?.status==='REVIEW_REQUIRED'&&<button type="button" className="ollama-recheck" onClick={async()=>{
             const r=await fetch('http://127.0.0.1:8790/api/ollama-mirror/reconcile',{method:'POST'}).catch(()=>null)
             if(r?.ok)setOllamaMirror(await r.json())
@@ -536,7 +557,7 @@ function App(){
           <div><small>{lang==='pt'?'TRADES FECHADOS • OANDA':'CLOSED TRADES • OANDA'}</small><strong>{ollamaMirror?.closedTrades??'—'}</strong></div>
           <div><small>{lang==='pt'?'ANÁLISES DA IA':'AI REVIEWS'}</small><strong>{sim?.ollamaPaperExperiment?.decisions??'—'}</strong></div>
           <div><small>{lang==='pt'?'SINAIS GERADOS':'SIGNALS GENERATED'}</small><strong>{sim?.ollamaPaperExperiment?.signals??'—'}</strong></div>
-          <div><small>{lang==='pt'?'ESTADO DA OANDA':'BROKER STATUS'}</small><strong>{ollamaMirror?.status??'—'}</strong></div>
+          <div><small>{lang==='pt'?'ESTADO DA OANDA':'BROKER STATUS'}</small><strong className="ollama-oanda-status-value">{ollamaOandaStatus(ollamaMirror?.status,lang)}</strong></div>
           <div><small>{lang==='pt'?'FALHAS DA IA':'MODEL ERRORS'}</small><strong>{sim?.ollamaPaperExperiment?.errors??'—'}</strong></div>
         </div>
         <div className="shadow-position">
