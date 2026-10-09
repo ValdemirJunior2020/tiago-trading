@@ -7,7 +7,7 @@ import type{BrokerSignal}from'./OllamaPaperEngine.js'
 import{OLLAMA_TRADE_TAG,isTagged,ollamaClientId}from'../broker/OllamaPracticeBroker.js'
 
 const dirs:string[]=[]
-const now=()=>new Date()
+const now=()=>new Date('2026-10-09T19:30:00.000Z') // Friday 15:30 EDT, session open
 let sequence=0
 const signal=():BrokerSignal=>({
  key:'EUR_USD:2026-10-09T19:00:00.000Z:long:'+ ++sequence,action:'OPEN',symbol:'EUR_USD',
@@ -100,8 +100,12 @@ describe('Ollama OANDA Practice direct execution, no virtual mirroring',()=>{
   await h.mirror.checkNow();h.setShadow('EUR_USD');h.show(signal())
   await h.mirror.checkNow()
   expect(h.calls.open).toBe(0)
-  expect(h.mirror.snapshot().status).toBe('BLOCKED')
+  expect(h.mirror.snapshot().status).toBe('WAITING_SHADOW_FREE')
   expect(h.mirror.snapshot().latestError).toContain('SHADOW_PRIORITY')
+  expect(h.mirror.snapshot().events[0].event).toBe('OLLAMA_OANDA_SIGNAL_SKIPPED_SHADOW_PRIORITY')
+  await h.mirror.checkNow()
+  expect(h.mirror.snapshot().status).toBe('WAITING_NEW_OLLAMA_SIGNAL')
+  expect(h.calls.open).toBe(0)
  })
  it('treats broker timeout after fill as ambiguous; never duplicates; can reconcile read-only',async()=>{
   const h=harness()
@@ -117,6 +121,28 @@ describe('Ollama OANDA Practice direct execution, no virtual mirroring',()=>{
   expect(h.mirror.snapshot().status).toBe('BROKER_OPEN')
   expect(h.mirror.snapshot().tradeId).toBe('91')
   expect(h.calls.open).toBe(1)
+ })
+ it('refuses a new AI order during closed Friday session even when signal and mock quote look fresh',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'ollama-oanda-weekend-test-'));dirs.push(dir)
+  let view:{lastBrokerSignal:BrokerSignal|null}={lastBrokerSignal:null}
+  const closedTime=new Date('2026-10-09T21:11:00Z')
+  let attempts=0
+  const broker={
+   validateOpen:async()=>{attempts++},open:async()=>{attempts++;throw Error('should never submit')},
+   openTrades:async()=>[],findTagged:async()=>[],trade:async()=>null,
+   syncStop:async()=>null,close:async()=>null
+  }
+  const engine=new OllamaPracticeMirror(()=>view,()=>({position:null}),{
+   baseDir:dir,logDir:join(dir,'logs'),now:()=>closedTime,broker:broker as any
+  })
+  await engine.checkNow()
+  expect(engine.snapshot().status).toBe('MARKET_CLOSED')
+  view={lastBrokerSignal:{...signal(),at:closedTime.toISOString()}}
+  await engine.checkNow()
+  expect(attempts).toBe(0)
+  expect(engine.snapshot().tradeId).toBeNull()
+  expect(engine.snapshot().status).toBe('MARKET_CLOSED')
+  expect(engine.snapshot().latestError).toContain('market is closed')
  })
  it('uses deterministic unique client IDs distinct from Shadow',()=>{
   expect(ollamaClientId('A','EUR_USD')).toBe(ollamaClientId('A','EUR_USD'))

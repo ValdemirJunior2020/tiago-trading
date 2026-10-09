@@ -6,6 +6,7 @@ import {env} from '../config.js'
 import {OllamaPracticeBroker,ollamaClientId,isTagged,OLLAMA_TRADE_TAG} from '../broker/OllamaPracticeBroker.js'
 import type{OpenSpec}from '../broker/OllamaPracticeBroker.js'
 import type{BrokerSignal}from './OllamaPaperEngine.js'
+import{oandaForexSession,isOandaForexSessionOpen}from '../broker/OandaMarketHours.js'
 
 export type PaperView={lastBrokerSignal?:BrokerSignal|null}
 type ShadowView={position?:{symbol:string}|null;pendingMirrorCloseTradeId?:string|null}
@@ -49,9 +50,11 @@ export class OllamaPracticeMirror{
  snapshot(){
   const totals=this.state.closed.reduce((sum,t)=>sum.plus(t.realizedPL),new Decimal(0))
   const active=this.state.active
+  const session=oandaForexSession(this.now())
+  const status=!active&&session!=='OPEN'&&this.state.status!=='REVIEW_REQUIRED'&&this.state.status!=='DISABLED_OR_NOT_PRACTICE'?'MARKET_CLOSED':this.state.status
   return{
    source:'OANDA_API',mode:'PRACTICE_ONLY',execution:'BROKER_ONLY',tag:OLLAMA_TRADE_TAG,enabled:isIndependentPracticeEnabled(),
-   status:this.state.status,latestError:this.state.lastError,updatedAt:this.state.lastUpdate,
+   status,marketSession:session,latestError:this.state.lastError,updatedAt:this.state.lastUpdate,
    tradeId:active?.tradeId??null,activeSymbol:active?.symbol??null,activeDirection:active?.direction??null,
    activeStatus:active?.status??null,brokerFillPrice:active?.fillPrice??null,
    mirroredStop:active?.stop??null,closedTrades:this.state.closed.length,
@@ -132,9 +135,21 @@ export class OllamaPracticeMirror{
    await this.manageBrokerActive()
    return
   }
-  if(!signal||!k||k===this.state.lastSeenSignalKey)return
+  if(!signal||!k||k===this.state.lastSeenSignalKey){
+   if(isOandaForexSessionOpen(this.now())&&
+     ['BLOCKED','MARKET_CLOSED','WAITING_SHADOW_FREE'].includes(this.state.status)){
+    this.state.status='WAITING_NEW_OLLAMA_SIGNAL';this.save()
+   }
+   return
+  }
   // The key is consumed BEFORE network requests, including preflight failures.
   this.state.lastSeenSignalKey=k;this.save()
+  if(!isOandaForexSessionOpen(this.now())){
+   this.state.status='MARKET_CLOSED'
+   this.state.lastError='OANDA FX market is closed: fresh signals are not sent outside the trading session.'
+   this.note('OLLAMA_OANDA_MARKET_CLOSED',this.state.lastError)
+   return
+  }
   if(signal.action!=='OPEN'||!['EUR_USD','GBP_USD'].includes(signal.symbol)||
    !['long','short'].includes(signal.direction)||!Number.isFinite(Date.parse(signal.at))||
    Math.abs(this.now().getTime()-Date.parse(signal.at))>120000){
@@ -154,7 +169,14 @@ export class OllamaPracticeMirror{
    const duplicates=await this.broker.findTagged(clientId)
    if(duplicates.length){this.blocked('Trade with same Ollama signal key already exists in OANDA','REVIEW_REQUIRED');return}
    await this.broker.validateOpen(spec,this.getShadow().position?.symbol||null)
-  }catch(e){this.blocked('Broker refused Ollama signal, no order sent: '+String(e));return}
+  }catch(e){
+   const reason='No order sent: '+String(e)
+   if(/SHADOW_PRIORITY|INSTRUMENT_OCCUPIED/.test(reason)){
+    this.state.status='WAITING_SHADOW_FREE';this.state.lastError=reason
+    this.note('OLLAMA_OANDA_SIGNAL_SKIPPED_SHADOW_PRIORITY',reason)
+   }else this.blocked('Broker refused Ollama signal, '+reason)
+   return
+  }
   const intent:Intent={paperKey:k,clientId,symbol:signal.symbol,direction:signal.direction,units:signal.units,
    stop:signal.stop,status:'OPENING',tradeId:null,fillPrice:null,startedAt:this.now().toISOString()}
   this.state.active=intent;this.state.status='OPENING';this.save()
