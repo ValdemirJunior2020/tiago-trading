@@ -7,8 +7,11 @@ import{ollamaHealth,critique}from'./ollama.js'
 import{env,BROKER_MODE,SIMULATOR_ENABLED,OANDA_DEMO_MIRROR_ENABLED}from'./config.js'
 import{ResearchSimulator}from'./simulator/ResearchSimulator.js'
 import{HistorySync}from'./simulator/HistorySync.js'
+import{OllamaPracticeMirror}from'./simulator/OllamaPracticeMirror.js'
+import{isTagged}from'./broker/OllamaPracticeBroker.js'
 
-const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),simulator=new ResearchSimulator(broker),history=new HistorySync()
+const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),simulator=new ResearchSimulator(broker),history=new HistorySync(),
+ ollamaMirror=new OllamaPracticeMirror(()=>simulator.snapshot().ollamaPaperExperiment,()=>simulator.snapshot().shadowExperiment)
 
 app.use(helmet())
 app.use(cors({origin:env.CLIENT_ORIGIN}))
@@ -28,6 +31,7 @@ app.get('/health',async(_q,res)=>{
     mode:OANDA_DEMO_MIRROR_ENABLED?'OANDA_PRACTICE_MIRROR':'READ_ONLY_TRADE_PLANNER',
     brokerMode:BROKER_MODE,
     demoMirror:{enabled:OANDA_DEMO_MIRROR_ENABLED,strategy:'SHADOW_3_OF_4',practiceOnly:true},
+    ollamaPracticeMirror:ollamaMirror.snapshot(),
     simulator:{enabled:SIMULATOR_ENABLED,state:simulator.snapshot()}
   })
 })
@@ -59,7 +63,7 @@ app.get('/api/oanda-audit',async(_q,res)=>{
   if(OANDA_DEMO_MIRROR_ENABLED){
    if(shadow&&!id)issues.push('SHADOW_OPEN_WITHOUT_OANDA_TRADE_ID')
    if(id&&!brokerTrade)issues.push('SHADOW_MIRROR_TRADE_NOT_OPEN_AT_OANDA')
-   if(!shadow&&brokerState.openTrades.length>0)issues.push('OANDA_HAS_OPEN_TRADES_WITHOUT_SHADOW_POSITION')
+   if(!shadow&&brokerState.openTrades.some((t:any)=>!isTagged(t)))issues.push('OANDA_HAS_OPEN_TRADES_WITHOUT_SHADOW_POSITION')
    if(shadow&&brokerTrade){
     if(String(brokerTrade.instrument)!==String(shadow.symbol))issues.push('INSTRUMENT_MISMATCH')
     const brokerUnits=Number(brokerTrade.currentUnits)
@@ -100,6 +104,9 @@ app.post('/api/plan',async(req,res)=>{
 
 app.get('/api/simulator',(_q,res)=>res.json({enabled:SIMULATOR_ENABLED,state:simulator.snapshot()}))
 
+// Independent broker-verified Ollama results. This endpoint NEVER submits orders.
+app.get('/api/ollama-mirror',(_q,res)=>res.json(ollamaMirror.snapshot()))
+
 // Read-only consolidated audit history; never submits or changes trades.
 app.get('/api/log-history',(_q,res)=>res.json(history.getSummary()))
 
@@ -116,4 +123,5 @@ app.listen(env.PORT,'127.0.0.1',()=>{
  console.log(`ProfitMind Forex http://127.0.0.1:${env.PORT}`)
  history.start()
  simulator.start()
+ ollamaMirror.start()
 })
