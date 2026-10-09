@@ -106,6 +106,8 @@ app.get('/api/simulator',(_q,res)=>res.json({enabled:SIMULATOR_ENABLED,state:sim
 
 // Independent broker-verified Ollama results. This endpoint NEVER submits orders.
 app.get('/api/ollama-mirror',(_q,res)=>res.json(ollamaMirror.snapshot()))
+// Manual OANDA read-only recheck. Does not place, close or modify broker orders.
+app.post('/api/ollama-mirror/reconcile',async(_q,res)=>{try{res.json(await ollamaMirror.reconcileOnly())}catch(e){res.status(503).json({error:String(e)})}})
 
 // Read-only consolidated audit history; never submits or changes trades.
 app.get('/api/log-history',(_q,res)=>res.json(history.getSummary()))
