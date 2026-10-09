@@ -316,7 +316,7 @@ function App(){
           <div>
             <span className="kicker"><ChartNoAxesCombined size={15}/> STRATEGY SCOREBOARD</span>
             <h2>{lang==='pt'?'Qual estratégia está fazendo dinheiro?':'Which strategy is making money?'}</h2>
-            <p>{lang==='pt'?'Resultados separados. O novo NO MACRO + EARLY EXIT é um A/B test: após 3h, se nunca passou +0.10R e caiu a -0.25R, sai cedo. Não altera Strict, Shadow ou NO MACRO original.':'Separated results. The new NO MACRO + EARLY EXIT is an A/B test: after 3h, if it never reached +0.10R and falls to -0.25R, it exits early. It does not alter Strict, Shadow, or the original NO MACRO.'}</p>
+            <p>{lang==='pt'?'Resultados independentes: Strict 4/4, Shadow 3/4, Early Exit, Fimathe e Ollama. Early Exit testa saídas antecipadas após 3 horas, sem alterar o Shadow.':'Independent results: Strict 4/4, Shadow 3/4, Early Exit, Fimathe and Ollama. Early Exit tests earlier exits after 3 hours, without changing Shadow.'}</p>
           </div>
           <span className="live-pill"><i/> PAPER DATA</span>
         </div>
@@ -332,13 +332,6 @@ function App(){
             status={sim?.shadowExperiment?.position?(lang==='pt'?'ATIVO • trade aberto':'ACTIVE • trade open'):(lang==='pt'?'ATIVO':'ACTIVE')}
             stats={sim?.strategyPerformance?.SHADOW_3_OF_4}
             lang={lang}
-          />
-          <StrategyPerformanceCard
-            name="NO MACRO 3/3"
-            status={sim?.noMacroExperiment?.position?(lang==='pt'?'TESTE • trade aberto':'TEST • trade open'):(lang==='pt'?'TESTE NOVO • forward':'NEW TEST • forward')}
-            stats={sim?.strategyPerformance?.NO_MACRO_3_OF_3}
-            lang={lang}
-            researchOnly
           />
           <StrategyPerformanceCard
             name="NO MACRO + EARLY EXIT"

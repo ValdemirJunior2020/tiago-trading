@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url'
 import {inflateRawSync} from 'node:zlib'
 
 const DEFAULT_ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../../../')
-const LOG_FOLDERS=['simulator','shadow-paper','shadow-candidates','no-macro-paper','no-macro-early-exit','ollama-paper','ollama-memory','fimathe-market','fimathe-paper']
+const LOG_FOLDERS=['simulator','shadow-paper','shadow-candidates','no-macro-early-exit','ollama-paper','ollama-memory','fimathe-market','fimathe-paper']
 const MAX_ZIP_BYTES=64*1024*1024
 const MAX_UNPACKED_ENTRY=128*1024*1024
 
@@ -27,9 +27,10 @@ function sourceOf(location:string){
 }
 function strategyOf(source:string,event:string){
  if(event.startsWith('SHADOW_DEMO_MIRROR_'))return'OANDA_PRACTICE_SHADOW'
- return ({'simulator':'STRICT_4_OF_4','shadow-paper':'SHADOW_3_OF_4','shadow-candidates':'SHADOW_CANDIDATES','no-macro-paper':'NO_MACRO_3_OF_3','no-macro-early-exit':'NO_MACRO_EARLY_EXIT','ollama-paper':'OLLAMA_PAPER','ollama-memory':'OLLAMA_MEMORY','fimathe-paper':'FIMATHE_PAPER','fimathe-market':'FIMATHE_MARKET'} as Record<string,string>)[source]||'UNCLASSIFIED'
+ return ({'simulator':'STRICT_4_OF_4','shadow-paper':'SHADOW_3_OF_4','shadow-candidates':'SHADOW_CANDIDATES','no-macro-early-exit':'NO_MACRO_EARLY_EXIT','ollama-paper':'OLLAMA_PAPER','ollama-memory':'OLLAMA_MEMORY','fimathe-paper':'FIMATHE_PAPER','fimathe-market':'FIMATHE_MARKET'} as Record<string,string>)[source]||'UNCLASSIFIED'
 }
-const CLOSE_EVENTS=new Set(['PAPER_CLOSE','SHADOW_PAPER_CLOSE','NO_MACRO_PAPER_CLOSE','NO_MACRO_EARLY_EXIT_PAPER_CLOSE','OLLAMA_PAPER_CLOSE','FIMATHE_PAPER_CLOSE','SHADOW_DEMO_MIRROR_CLOSED','SHADOW_DEMO_MIRROR_CLOSE_RECONCILED'])
+const CLOSE_EVENTS=new Set(['PAPER_CLOSE','SHADOW_PAPER_CLOSE','NO_MACRO_EARLY_EXIT_PAPER_CLOSE','OLLAMA_PAPER_CLOSE','FIMATHE_PAPER_CLOSE','SHADOW_DEMO_MIRROR_CLOSED','SHADOW_DEMO_MIRROR_CLOSE_RECONCILED'])
+const ACTIVE_STRATEGIES=new Set(['STRICT_4_OF_4','SHADOW_3_OF_4','SHADOW_CANDIDATES','OANDA_PRACTICE_SHADOW','NO_MACRO_EARLY_EXIT','OLLAMA_PAPER','OLLAMA_MEMORY','FIMATHE_PAPER','FIMATHE_MARKET'])
 const MAX_ERRORS=30
 
 /** Reads ZIP central directory without extracting files or altering the originals. */
@@ -203,6 +204,8 @@ export class HistorySync{
   const strategies:Record<string,Stats>=reset?{}:JSON.parse(JSON.stringify(this.lastSummary.strategies))
   let totalEvents=reset?0:this.lastSummary.totalEvents,lastEventAt=reset?null:this.lastSummary.lastEventAt
   for(const r of rows){
+   // Retain original archive entries but exclude retired engines from active summary.
+   if(!ACTIVE_STRATEGIES.has(r.strategy))continue
    totalEvents++
    if(r.at&&(!lastEventAt||r.at>lastEventAt))lastEventAt=r.at
    const s=strategies[r.strategy]||(strategies[r.strategy]=stats())

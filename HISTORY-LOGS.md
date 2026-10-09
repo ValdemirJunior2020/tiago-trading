@@ -1,6 +1,6 @@
 # TIAGO — automatic old + new research log history
 
-The **original** files in `logs/shadow-paper/`, `logs/simulator/`, `logs/no-macro-paper/`, `logs/ollama-paper/`, etc. remain unchanged. The history system is **read-only** toward all trading engines and OANDA. It cannot place orders or change risk settings.
+The **original** files in `logs/shadow-paper/`, `logs/simulator/`, `logs/ollama-paper/`, etc. remain unchanged. The history system is **read-only** toward all trading engines and OANDA. It cannot place orders or change risk settings.
 
 ## One-time historical import
 
