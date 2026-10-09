@@ -225,7 +225,7 @@ export class OllamaPracticeMirror{
   this.busy=true
   try{
    await this.reconcileIntent()
-   if(this.state.status==='BROKER_OPEN')this.note('OLLAMA_OANDA_RECOVERED','OANDA ownership and attached stop confirmed; management resumes on next cycle')
+   if(this.snapshot().status==='BROKER_OPEN')this.note('OLLAMA_OANDA_RECOVERED','OANDA ownership and attached stop confirmed; management resumes on next cycle')
   }catch(e){
    this.state.status='REVIEW_REQUIRED';this.state.lastError='Still requires review: '+String(e)
    this.note('OLLAMA_OANDA_RECHECK_FAILED',this.state.lastError)
