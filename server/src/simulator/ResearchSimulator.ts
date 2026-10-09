@@ -1,4 +1,5 @@
 import{FimathePaperEngine}from'./FimathePaperEngine.js'
+import{OllamaPaperEngine}from'./OllamaPaperEngine.js'
 import{Decimal}from'decimal.js'
 import{existsSync,mkdirSync,readFileSync,renameSync,writeFileSync}from'node:fs'
 import{resolve,dirname}from'node:path'
@@ -118,9 +119,10 @@ export class ResearchSimulator{
  private noMacroEarlyExitRisk=new RiskManager(NO_MACRO_EARLY_EXIT_RISK_PATH)
  private shadowRecoveryChecked=false
  private fimathePaper:FimathePaperEngine
+ private ollamaPaper:OllamaPaperEngine
  private noMacroRecoveryChecked=false
 
- constructor(private broker:OandaReadOnly){this.load();this.fimathePaper=new FimathePaperEngine(broker)}
+ constructor(private broker:OandaReadOnly){this.load();this.fimathePaper=new FimathePaperEngine(broker);this.ollamaPaper=new OllamaPaperEngine(broker)}
 
  private load(){
   if(!existsSync(STATE_PATH))return
@@ -421,6 +423,7 @@ export class ResearchSimulator{
   logNoMacroTrade({event:'NO_MACRO_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS})
   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,rule:{minAgeHours:3,maxPeakR:'0.10',currentRAtOrBelow:'-0.25'}})
   this.fimathePaper.start()
+  this.ollamaPaper.start()
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
  }
@@ -431,7 +434,7 @@ export class ResearchSimulator{
   logSimulator({event:'SIMULATOR_STOP'})
  }
 
- snapshot(){const paper=this.fimathePaper.snapshot();return {...this.state,fimathePaperExperiment:paper,strategyPerformance:{...this.state.strategyPerformance,FIMATHE:paper.stats}}}
+ snapshot(){const paper=this.fimathePaper.snapshot();const ai=this.ollamaPaper.snapshot();return {...this.state,fimathePaperExperiment:paper,ollamaPaperExperiment:ai,strategyPerformance:{...this.state.strategyPerformance,FIMATHE:paper.stats,OLLAMA_AI_LAB:ai.stats}}}
 
  private recordStrategyResult(strategy:StrategyName,pnl:Decimal){
   const s=this.state.strategyPerformance[strategy]
@@ -1042,6 +1045,7 @@ export class ResearchSimulator{
     try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
     catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
      await this.fimathePaper.process(symbol)
+     await this.ollamaPaper.process(symbol)
    }
    this.save()
   }catch(e){
