@@ -636,3 +636,27 @@ h1,h2,p{margin:0}
 
 .ollama-recheck{display:inline-flex;align-items:center;justify-content:center;margin-top:12px;padding:10px 16px;border:1px solid rgba(255,140,210,.6);border-radius:10px;background:rgba(255,102,198,.14);color:#ffe5f4;font-size:13px;font-weight:750;cursor:pointer}
 .ollama-recheck:hover{background:rgba(255,102,198,.24)}
+
+/* Ollama OANDA historical candle laboratory; actual broker attribution only */
+.ollama-chartlab{margin:16px 20px;padding:20px;border:1px solid rgba(255,93,194,.45);border-radius:16px;background:linear-gradient(145deg,rgba(64,15,63,.89),rgba(22,13,39,.96));box-shadow:0 8px 28px rgba(14,1,25,.18)}
+.chartlab-top{display:flex;justify-content:space-between;align-items:start;gap:16px;flex-wrap:wrap}
+.chartlab-kicker{color:#ff9fdc;font-size:11px;font-weight:900;letter-spacing:1.7px}
+.chartlab-top h3{color:#fff0fb;margin:5px 0;font-size:21px}
+.chartlab-top p,.chartlab-disclaimer{font-size:12px;color:#f6cde6;line-height:1.6;margin:6px 0}
+.chartlab-count{min-width:95px;border:1px solid rgba(255,144,214,.3);border-radius:12px;padding:10px 14px;text-align:center;background:rgba(254,92,193,.11)}
+.chartlab-count strong{display:block;font-size:27px;color:#ff9cda}
+.chartlab-count small{display:block;color:#ffd7ee;font-size:11px}
+.chartlab-trades{display:flex;gap:8px;overflow-x:auto;padding:15px 0 10px}
+.chartlab-pick{flex-shrink:0;background:rgba(28,9,38,.7);border:1px solid rgba(255,151,215,.35);border-radius:9px;color:#fff1fa;padding:10px 12px;cursor:pointer}
+.chartlab-pick.chosen{border-color:#ff90d5;background:rgba(236,76,167,.2)}
+.chartlab-pick .win{color:#5cebc3}.chartlab-pick .loss{color:#ff81a2}
+.chartlab-details{display:flex;flex-wrap:wrap;align-items:center;gap:9px 18px;margin:12px 0;color:#fcd9eb;font-size:12px}
+.chartlab-details b{font-size:14px;color:#fff}.chartlab-details small{color:#edb6d5}
+.chartlab-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.chartlab-plot{min-width:0;padding:12px;border:1px solid rgba(255,130,203,.28);background:rgba(13,11,30,.7);border-radius:12px}
+.chartlab-plot-title{font-size:12px;font-weight:800;color:#ffa5df;margin:0 0 6px}
+.chartlab-plot svg{width:100%;height:auto;display:block}
+.chartlab-empty{border:1px dashed rgba(255,149,210,.36);border-radius:12px;color:#f8d5ea;padding:20px;margin-top:13px;text-align:center;font-size:13px}
+.chartlab-alert{color:#ffd999;font-size:12px}
+@media(max-width:850px){.chartlab-grid{grid-template-columns:1fr}}
+@media(max-width:600px){.ollama-chartlab{margin:12px 10px;padding:14px}}
