@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useState}from'react'
 import{createRoot}from'react-dom/client'
 import{
   Activity,BrainCircuit,ChartNoAxesCombined,ChevronRight,CircleDollarSign,
-  Gauge,Globe2,LayoutDashboard,LineChart,RefreshCw,ShieldCheck,
+  Globe2,LayoutDashboard,LineChart,RefreshCw,ShieldCheck,
   Sparkles,Target,WalletCards,Wifi,WifiOff
 }from'lucide-react'
 import'./styles.css'
@@ -175,13 +175,14 @@ function App(){
             <span className="pulse-dot"/>
             <div><small>{String(sim.shadowExperiment.position.symbol).replace('_','/')} • {String(sim.shadowExperiment.position.direction).toUpperCase()}</small><b>{lang==='pt'?'Entrada':'Entry'} {fmt(sim.shadowExperiment.position.entry)}</b></div>
           </div>
-          <div className="margin-mini">
+          <details className="sidebar-risk-details"><summary>{lang==='pt'?'Detalhes do risco simulado':'Paper risk details'}</summary>
+            <div className="margin-mini">
             <div><small>LOT SIZE</small><b>{sim.shadowExperiment.position.lotSize??'—'}</b></div>
             <div><small>{lang==='pt'?'MARGEM EXIGIDA':'MARGIN REQUIRED'}</small><b>{money(sim.shadowExperiment.position.marginRequired)}</b></div>
             <div><small>{lang==='pt'?'MARGEM DISPONÍVEL':'MARGIN AVAILABLE'}</small><b>{money(sim.shadowExperiment.position.marginAvailable)}</b></div>
             <div><small>{lang==='pt'?'MARGEM DEPOIS':'MARGIN AFTER'}</small><b>{money(sim.shadowExperiment.position.marginAfterTrade)}</b></div>
             <div><small>{lang==='pt'?'ALAVANCAGEM EFETIVA':'EFFECTIVE LEVERAGE'}</small><b>{sim.shadowExperiment.position.effectiveLeverage?sim.shadowExperiment.position.effectiveLeverage+':1':'—'}</b></div>
-          </div>
+            </div></details>
         </>}
       </div>
 
@@ -216,30 +217,37 @@ function App(){
         <div className="strip-note">{x.updated}</div>
       </section>
 
-      <section style={{padding:'16px 20px',margin:'12px 0',border:'1px solid rgba(148,163,184,.25)',borderRadius:14,background:'rgba(15,23,42,.7)'}}>
-        <div style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',alignItems:'center'}}>
-          <strong>OANDA • {lang==='pt'?'FONTE OFICIAL':'BROKER SOURCE OF TRUTH'}</strong>
-          <b style={{color:oandaAudit?.syncStatus==='MATCHED'?'#4ade80':'#fbbf24'}}>{oandaAudit?.syncStatus||'UNAVAILABLE'}</b>
-        </div>
-        <p style={{opacity:.75,fontSize:12}}>{lang==='pt'?'Saldo e resultados da OANDA via API; Shadow permanece simulação separada.':'OANDA values from broker API; Shadow remains a separate simulation.'}</p>
-        <div style={{display:'flex',gap:24,flexWrap:'wrap'}}>
-          <div><small>OANDA BALANCE</small><div><b>{oandaAudit?money(oandaAudit.balance):'—'}</b></div></div>
-          <div><small>OANDA EQUITY</small><div><b>{oandaAudit?money(oandaAudit.equity):'—'}</b></div></div>
-          <div><small>OANDA UNREALIZED P/L</small><div><b>{oandaAudit?signedMoney(oandaAudit.unrealizedPL):'—'}</b></div></div>
-          <div><small>OANDA ACCOUNT P/L</small><div><b>{oandaAudit?signedMoney(oandaAudit.accountRealizedPL):'—'}</b></div></div>
-          <div><small>OANDA OPEN TRADES</small><div><b>{oandaAudit?.openTrades?.length??'—'}</b></div></div>
-        </div>
-        {oandaAudit?.issues?.length>0&&<p style={{color:'#fbbf24',fontWeight:700}}>SYNC ALERT: {oandaAudit.issues.join(' • ')}</p>}
-        <small style={{opacity:.65}}>API snapshot: {oandaAudit?.retrievedAt??'unavailable'} • Account P/L is broker account-wide, not Shadow-only</small>
-      </section>
-      <section className="metrics">
-        <Metric icon={<WalletCards/>} label={x.balance} value={money(account?.balance)} meta="Broker balance"/>
-        <Metric icon={<Activity/>} label={x.equity} value={money(account?.equity)} meta={`24h DD ${drawdown.toFixed(2)}%`}/>
-        <Metric icon={<Gauge/>} label={x.margin} value={money(account?.marginAvailable)} meta="Real-time"/>
-        <Metric icon={<Target/>} label={x.open} value={String(positions.length)} meta={health?.brokerMode==='DEMO'?'Demo account':'Live account'}/>
-      </section>
+      <section className="broker-overview" aria-label={lang==='pt'?'Resumo oficial da conta OANDA':'Official OANDA account summary'}>
+         <div className="broker-overview-head">
+           <div>
+             <div className="broker-overview-kicker"><WalletCards size={17}/>{lang==='pt'?'OANDA · FONTE OFICIAL':'OANDA · BROKER SOURCE'}</div>
+             <h2>{lang==='pt'?'Sua conta na OANDA':'Your OANDA account'}</h2>
+             <p>{lang==='pt'?'Valores diretamente da corretora. Shadow permanece uma simulação separada.':'Broker figures. Shadow paper results remain separate.'}</p>
+           </div>
+           <span className={`broker-sync ${oandaAudit?.syncStatus==='MATCHED'?'matched':oandaAudit?.syncStatus==='MISMATCH'?'mismatch':'unavailable'}`} role="status" aria-live="polite">
+             {oandaAudit?.syncStatus==='MATCHED'?(lang==='pt'?'✓ Conferido':'✓ Matched'):oandaAudit?.syncStatus==='MISMATCH'?(lang==='pt'?'⚠ Divergência':'⚠ Mismatch'):(lang==='pt'?'⚠ Indisponível':'⚠ Unavailable')}
+           </span>
+         </div>
+         <div className="broker-stat-grid">
+           <div className="broker-stat"><span>{lang==='pt'?'Saldo':'Balance'}</span><strong>{oandaAudit?money(oandaAudit.balance):'—'}</strong></div>
+           <div className="broker-stat"><span>{lang==='pt'?'Patrimônio':'Equity'}</span><strong>{oandaAudit?money(oandaAudit.equity):'—'}</strong></div>
+           <div className="broker-stat"><span>{lang==='pt'?'P/L em aberto':'Unrealized P/L'}</span><strong className={Number(oandaAudit?.unrealizedPL)>0?'profit-up':Number(oandaAudit?.unrealizedPL)<0?'profit-down':''}>{oandaAudit?signedMoney(oandaAudit.unrealizedPL):'—'}</strong></div>
+           <div className="broker-stat"><span>{lang==='pt'?'P/L realizado da conta':'Account realized P/L'}</span><strong className={Number(oandaAudit?.accountRealizedPL)>0?'profit-up':Number(oandaAudit?.accountRealizedPL)<0?'profit-down':''}>{oandaAudit?signedMoney(oandaAudit.accountRealizedPL):'—'}</strong></div>
+           <div className="broker-stat"><span>{lang==='pt'?'Trades abertos':'Open trades'}</span><strong>{oandaAudit?.openTrades?.length??'—'}</strong></div>
+         </div>
+         <div className="broker-overview-meta">
+           <span>{lang==='pt'?'Margem disponível':'Available margin'}: <b>{oandaAudit?money(oandaAudit.marginAvailable):'—'}</b></span>
+           <span>{lang==='pt'?'Margem usada':'Used margin'}: <b>{oandaAudit?money(oandaAudit.marginUsed):'—'}</b></span>
+           <span>24h DD: <b>{drawdown.toFixed(2)}%</b></span>
+         </div>
+         {oandaAudit?.issues?.length>0&&<div className="broker-sync-alert" role="alert">SYNC ALERT: {oandaAudit.issues.join(' · ')}</div>}
+         <div className="broker-overview-footer">
+           <span>{lang==='pt'?'Última consulta OANDA':'Last OANDA update'}: {oandaAudit?.retrievedAt?new Date(oandaAudit.retrievedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):'—'}</span>
+           <span>{lang==='pt'?'P/L da conta inteira, não só do Shadow. Status indica verificações básicas.':'Account-wide P/L, not Shadow-only. Status indicates basic checks.'}</span>
+         </div>
+       </section>
 
-      <section className="main-grid">
+       <section className="main-grid">
         <div className="panel market-panel">
           <div className="panel-head">
             <div><span className="kicker"><LineChart size={15}/>{x.market}</span><h2>{x.watch}</h2><p>{x.watchSub}</p></div>
@@ -516,7 +524,6 @@ function App(){
 }
 
 function Nav({icon,label,active=false}:{icon:React.ReactNode;label:string;active?:boolean}){return <button className={active?'nav-item active':'nav-item'}>{icon}<span>{label}</span></button>}
-function Metric({icon,label,value,meta}:{icon:React.ReactNode;label:string;value:string;meta:string}){return <div className="metric"><div className="metric-icon">{icon}</div><div className="metric-copy"><span>{label}</span><strong>{value}</strong><small>{meta}</small></div></div>}
 function StrategyPerformanceCard({name,status,stats,lang,researchOnly=false}:{name:string;status:string;stats:any;lang:Lang;researchOnly?:boolean}){
   const trades=Number(stats?.trades||0),wins=Number(stats?.wins||0),losses=Number(stats?.losses||0)
   const grossProfit=Number(stats?.grossProfit||0),grossLoss=Number(stats?.grossLoss||0),net=Number(stats?.netProfit||0),maxDD=Number(stats?.maxDrawdown||0)
