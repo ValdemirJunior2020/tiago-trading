@@ -633,3 +633,6 @@ h1,h2,p{margin:0}
 .ollama-oanda-official>p.ollama-oanda-note{color:#eec1d8}
 @media(max-width:1000px){.ollama-oanda-values{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.ollama-oanda-values{grid-template-columns:1fr 1fr}.ollama-oanda-official{margin:0 10px 14px;padding:13px}}
+
+.ollama-recheck{display:inline-flex;align-items:center;justify-content:center;margin-top:12px;padding:10px 16px;border:1px solid rgba(255,140,210,.6);border-radius:10px;background:rgba(255,102,198,.14);color:#ffe5f4;font-size:13px;font-weight:750;cursor:pointer}
+.ollama-recheck:hover{background:rgba(255,102,198,.24)}
