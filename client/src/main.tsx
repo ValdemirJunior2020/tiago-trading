@@ -375,6 +375,7 @@ function App(){
           />
           <StrategyPerformanceCard
             name="OLLAMA AI LAB"
+            ollamaAccent
             status={sim?.ollamaPaperExperiment?.position?(lang==='pt'?'PAPER • posição aberta':'PAPER • position open'):(lang==='pt'?'IA INDEPENDENTE':'INDEPENDENT AI')}
             stats={sim?.strategyPerformance?.OLLAMA_AI_LAB}
             lang={lang}
@@ -416,9 +417,9 @@ function App(){
       <section className="panel shadow-lab ollama-lab">
         <div className="panel-head">
           <div>
-            <span className="kicker"><BrainCircuit size={15}/> OLLAMA AI LAB • V1</span>
+            <span className="kicker"><BrainCircuit size={15}/> OLLAMA AI LAB • OANDA RESEARCH</span>
             <h2>{lang==='pt'?'IA independente trabalhando':'Independent AI at work'}</h2>
-            <p>{lang==='pt'?'Experimento separado com US$1.000 virtuais. Ollama decide LONG / SHORT / WAIT / CLOSE sobre candles fechados; as regras matemáticas limitam as operações. Nenhuma ordem na OANDA.':'Separate $1,000 virtual experiment. Ollama decides LONG / SHORT / WAIT / CLOSE from completed candles; mathematical guards limit trading. No OANDA orders.'}</p>
+            <p>{lang==='pt'?'Pesquisa isolada de US$1.000: BUY / SELL / WAIT sobre candles e indicadores da OANDA. Custos paper incluem spread e slippage estimado. Nenhuma ordem enviada à OANDA.':'Independent $1,000 paper research: BUY / SELL / WAIT using OANDA candles and indicators. Simulated fills include spread and estimated slippage. No OANDA orders.'}</p>
           </div>
           <span className="locked-pill">PAPER ONLY</span>
         </div>
@@ -427,6 +428,50 @@ function App(){
           <b>{health?.ollama?(lang==='pt'?'Ollama conectado':'Ollama connected'):(lang==='pt'?'Ollama desconectado':'Ollama disconnected')}</b>
           <span>{lang==='pt'?'Motor:':'Engine:'} {sim?.ollamaPaperExperiment?.status??'WAITING'}</span>
           <span>{lang==='pt'?'Última análise:':'Last analysis:'} {sim?.ollamaPaperExperiment?.lastReviewedAt?new Date(sim.ollamaPaperExperiment.lastReviewedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):(lang==='pt'?'aguardando':'waiting')}</span>
+        </div>
+        <div className="ollama-research-grid">
+          <div className="ollama-research-card">
+            <small>{lang==='pt'?'CONDIÇÕES DE MERCADO · OANDA':'MARKET CONDITIONS · OANDA'}</small>
+            <b>{sim?.ollamaPaperExperiment?.lastMarket?.symbol?String(sim.ollamaPaperExperiment.lastMarket.symbol).replace('_','/'):'—'}</b>
+            <div className="ollama-research-values">
+              <span>RSI 14 <strong>{sim?.ollamaPaperExperiment?.lastMarket?.rsi14??'—'}</strong></span>
+              <span>MACRO <strong>{sim?.ollamaPaperExperiment?.lastMarket?.macroTrend??'—'}</strong></span>
+              <span>BB 20/2 <strong>{sim?.ollamaPaperExperiment?.lastMarket?.bbPosition??'—'}</strong></span>
+              <span>VOLUME <strong>{sim?.ollamaPaperExperiment?.lastMarket?.volumeRatio!=null?Number(sim.ollamaPaperExperiment.lastMarket.volumeRatio).toFixed(2)+'×':'—'}</strong></span>
+              <span>SPREAD <strong>{sim?.ollamaPaperExperiment?.lastMarket?.spreadPips!=null?sim.ollamaPaperExperiment.lastMarket.spreadPips+' pips':'—'}</strong></span>
+            </div>
+            <p>{lang==='pt'?'Indicadores derivados de candles fechados. Não são previsão de lucro.':'Indicators calculated from completed candles, not a profit forecast.'}</p>
+          </div>
+          <div className="ollama-research-card">
+            <small>{lang==='pt'?'APRENDIZADO · TRADES CONFIRMADOS':'LEARNING · VERIFIED OANDA TRADES'}</small>
+            <b>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.trades??0} {lang==='pt'?'trades Shadow ligados':'linked Shadow trades'}</b>
+            <div className="ollama-research-values">
+              <span>W / L <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.wins??0} / {sim?.ollamaPaperExperiment?.brokerLearning?.summary?.losses??0}</strong></span>
+              <span>OANDA P/L <strong>{signedMoney(sim?.ollamaPaperExperiment?.brokerLearning?.summary?.netPL??0)}</strong></span>
+              <span>{lang==='pt'?'PADRÕES AMOSTRADOS':'SAMPLED PATTERNS'} <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.featureSamples??0}</strong></span>
+              <span>{lang==='pt'?'STATUS':'STATUS'} <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.status??'WAITING'}</strong></span>
+            </div>
+            <div className="ollama-condition-list">
+              <small>{lang==='pt'?'CONDIÇÕES OBSERVADAS NAS VITÓRIAS':'OBSERVED WINNING CONDITIONS'} · {lang==='pt'?'mínimo 3 exemplos':'minimum 3 examples'}</small>
+              {(sim?.ollamaPaperExperiment?.brokerLearning?.summary?.observedWinningConditions??[]).length
+                ?(sim.ollamaPaperExperiment.brokerLearning.summary.observedWinningConditions as Array<{condition:string;wins:number;losses:number}>).map((c)=>
+                  <span key={c.condition}>{c.condition.replaceAll('_',' ')} · W {c.wins} / L {c.losses}</span>)
+                :<span>{lang==='pt'?'Sem amostra suficiente para mostrar um padrão confiável.':'Not enough confirmed examples to report a pattern.'}</span>}
+            </div>
+            <p>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.trades
+              ?(lang==='pt'?'Só resultados fechados pela OANDA e vinculados ao ID de espelho do Shadow.':'OANDA-confirmed closures linked to Shadow mirror IDs only.')
+              :(lang==='pt'?'Ainda sem amostra vinculada; dados locais não são considerados lucro real.':'No linked broker sample yet; local profits are not treated as real.')}</p>
+            {sim?.ollamaPaperExperiment?.brokerLearning?.error&&<p className="ollama-research-error">{String(sim.ollamaPaperExperiment.brokerLearning.error)}</p>}
+          </div>
+          <div className="ollama-research-card ollama-comparison">
+            <small>{lang==='pt'?'COMPARAÇÃO · MESMO PERÍODO':'COMPARISON · SAME TIME WINDOW'}</small>
+            <div className="ollama-compare-line"><span>Shadow • OANDA</span><b>{signedMoney(sim?.ollamaPaperExperiment?.comparison?.brokerShadow?.netPL??0)}</b><em>{sim?.ollamaPaperExperiment?.comparison?.brokerShadow?.trades??0} {lang==='pt'?'fechados':'closed'}</em></div>
+            <div className="ollama-compare-line"><span>Ollama • Paper</span><b>{signedMoney(sim?.ollamaPaperExperiment?.comparison?.ollamaPaper?.netPL??0)}</b><em>{sim?.ollamaPaperExperiment?.comparison?.ollamaPaper?.trades??0} {lang==='pt'?'fechados':'closed'}</em></div>
+            <p>{lang==='pt'?'Janela desde o início do paper Ollama. Capital e tamanhos das operações diferentes: não é comparação de retorno ajustado por risco.':'Window since Ollama paper start. Capital and position sizing differ; not a risk-adjusted return comparison.'}</p>
+          </div>
+        </div>
+        <div className="ollama-cost-note"><ShieldCheck size={15}/>
+          <span>{lang==='pt'?'Apenas paper · spread OANDA bid/ask + ':'Paper only · OANDA bid/ask spread + '}{sim?.ollamaPaperExperiment?.executionCosts?.assumedSlippagePipsPerSide??0.2} {lang==='pt'?'pip de slippage por lado · sem custos de financiamento':'pip assumed slippage per side · financing not modeled'}</span>
         </div>
         <div className="shadow-grid">
           <div><small>{lang==='pt'?'SALDO VIRTUAL':'PAPER BALANCE'}</small><strong>{money(sim?.ollamaPaperExperiment?.balance)}</strong></div>
@@ -447,7 +492,7 @@ function App(){
         </div>
         <div className="ollama-lab-decision">
           <small>{lang==='pt'?'ÚLTIMA DECISÃO DA IA':'LATEST AI DECISION'}</small>
-          <b>{sim?.ollamaPaperExperiment?.lastDecision?.decision??'WAITING'} {sim?.ollamaPaperExperiment?.lastDecision?.symbol?'• '+String(sim.ollamaPaperExperiment.lastDecision.symbol).replace('_','/'):''}</b>
+          <b>{sim?.ollamaPaperExperiment?.lastDecision?.decision==='LONG'?'BUY':sim?.ollamaPaperExperiment?.lastDecision?.decision==='SHORT'?'SELL':sim?.ollamaPaperExperiment?.lastDecision?.decision??'WAITING'} {sim?.ollamaPaperExperiment?.lastDecision?.symbol?'• '+String(sim.ollamaPaperExperiment.lastDecision.symbol).replace('_','/'):''}</b>
           <span>{sim?.ollamaPaperExperiment?.lastDecision?.reason??(lang==='pt'?'Aguardando a primeira análise do Ollama.':'Awaiting first Ollama review.')}</span>
           <small>{sim?.ollamaPaperExperiment?.lastDecision?.confidence!=null?(lang==='pt'?'Confiança: ':'Confidence: ')+(Number(sim.ollamaPaperExperiment.lastDecision.confidence)*100).toFixed(0)+'%':''}</small>
         </div>
@@ -524,14 +569,14 @@ function App(){
 }
 
 function Nav({icon,label,active=false}:{icon:React.ReactNode;label:string;active?:boolean}){return <button className={active?'nav-item active':'nav-item'}>{icon}<span>{label}</span></button>}
-function StrategyPerformanceCard({name,status,stats,lang,researchOnly=false}:{name:string;status:string;stats:any;lang:Lang;researchOnly?:boolean}){
+function StrategyPerformanceCard({name,status,stats,lang,researchOnly=false,ollamaAccent=false}:{name:string;status:string;stats:any;lang:Lang;researchOnly?:boolean;ollamaAccent?:boolean}){
   const trades=Number(stats?.trades||0),wins=Number(stats?.wins||0),losses=Number(stats?.losses||0)
   const grossProfit=Number(stats?.grossProfit||0),grossLoss=Number(stats?.grossLoss||0),net=Number(stats?.netProfit||0),maxDD=Number(stats?.maxDrawdown||0)
   const winRate=trades>0?(wins/trades)*100:0
   const avgWin=wins>0?grossProfit/wins:0
   const avgLoss=losses>0?grossLoss/losses:0
   const profitFactor=grossLoss>0?grossProfit/grossLoss:null
-  return <div className="strategy-score-card">
+  return <div className={ollamaAccent?"strategy-score-card ollama-strategy-card":"strategy-score-card"}>
     <div className="strategy-score-head"><div><small>{status}</small><b>{name}</b></div><span className={researchOnly?'research-badge':'paper-badge'}>{researchOnly?'RESEARCH':'PAPER'}</span></div>
     <strong className={net>0?'profit-up':net<0?'profit-down':''}>{signedMoney(net)}</strong>
     <div className="strategy-score-metrics">

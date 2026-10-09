@@ -21,7 +21,9 @@ function setup(decision:{decision:'LONG'|'SHORT'|'WAIT'|'CLOSE';confidence:numbe
 afterEach(()=>{for(const d of dirs.splice(0))rmSync(d,{recursive:true,force:true})})
 describe('independent Ollama paper experiment',()=>{
  it('rejects invalid decisions and confidence',()=>{
-  expect(()=>parseAiLabDecision({decision:'BUY',confidence:1,reason:'invalid'})).toThrow()
+  expect(()=>parseAiLabDecision({decision:'HOLD',confidence:1,reason:'invalid'})).toThrow()
+  expect(parseAiLabDecision({decision:'BUY',confidence:.9,reason:'verified candles'}).decision).toBe('LONG')
+  expect(parseAiLabDecision({decision:'SELL',confidence:.9,reason:'verified candles'}).decision).toBe('SHORT')
   expect(()=>parseAiLabDecision({decision:'LONG',confidence:2,reason:'invalid'})).toThrow()
   expect(parseAiLabDecision({decision:'WAIT',confidence:0.5,reason:'no setup'}).decision).toBe('WAIT')
  })
