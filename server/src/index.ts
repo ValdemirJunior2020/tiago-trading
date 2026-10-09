@@ -47,6 +47,37 @@ app.get('/api/positions',async(_q,res)=>{
   catch(e){res.status(503).json({error:e instanceof Error?e.message:String(e)})}
 })
 
+// Broker numbers only; local Shadow state is used solely to flag divergence.
+app.get('/api/oanda-audit',async(_q,res)=>{
+ try{
+  const brokerState=await broker.authoritativeSnapshot()
+  const simState:any=simulator.snapshot()
+  const shadow=simState?.shadowExperiment?.position
+  const id=shadow?.brokerMirrorTradeId?String(shadow.brokerMirrorTradeId):null
+  const brokerTrade=id?brokerState.openTrades.find((t:any)=>String(t.id)===id):null
+  const issues:string[]=[]
+  if(OANDA_DEMO_MIRROR_ENABLED){
+   if(shadow&&!id)issues.push('SHADOW_OPEN_WITHOUT_OANDA_TRADE_ID')
+   if(id&&!brokerTrade)issues.push('SHADOW_MIRROR_TRADE_NOT_OPEN_AT_OANDA')
+   if(!shadow&&brokerState.openTrades.length>0)issues.push('OANDA_HAS_OPEN_TRADES_WITHOUT_SHADOW_POSITION')
+   if(shadow&&brokerTrade){
+    if(String(brokerTrade.instrument)!==String(shadow.symbol))issues.push('INSTRUMENT_MISMATCH')
+    const brokerUnits=Number(brokerTrade.currentUnits)
+    const localUnits=Number(shadow.units)*(shadow.direction==='short'?-1:1)
+    if(!Number.isFinite(brokerUnits)||brokerUnits!==localUnits)issues.push('DIRECTION_OR_UNITS_MISMATCH')
+    const stop=Number(brokerTrade.stopLossOrder?.price)
+    if(!Number.isFinite(stop))issues.push('BROKER_STOP_UNAVAILABLE')
+    else if(Math.abs(stop-Number(shadow.hardStop))>0.000011)issues.push('STOP_MISMATCH')
+   }
+   if(simState?.shadowExperiment?.pendingMirrorCloseTradeId)issues.push('PENDING_BROKER_CLOSE')
+  }
+  res.json({...brokerState,mirrorEnabled:OANDA_DEMO_MIRROR_ENABLED,
+   mirrorTradeId:id,mirrorTrade:brokerTrade||null,
+   syncStatus:!OANDA_DEMO_MIRROR_ENABLED?'MIRROR_DISABLED':issues.length?'MISMATCH':'MATCHED',
+   issues})
+ }catch(e){res.status(503).json({source:'OANDA_API',syncStatus:'UNAVAILABLE',error:e instanceof Error?e.message:String(e)})}
+})
+
 app.get('/api/quote/:symbol',async(req,res)=>{
   try{res.json(await broker.quote(req.params.symbol))}
   catch(e){res.status(503).json({error:e instanceof Error?e.message:String(e)})}
