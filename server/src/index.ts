@@ -6,8 +6,9 @@ import{RiskManager}from'./risk/RiskManager.js'
 import{ollamaHealth,critique}from'./ollama.js'
 import{env,BROKER_MODE,SIMULATOR_ENABLED,OANDA_DEMO_MIRROR_ENABLED}from'./config.js'
 import{ResearchSimulator}from'./simulator/ResearchSimulator.js'
+import{HistorySync}from'./simulator/HistorySync.js'
 
-const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),simulator=new ResearchSimulator(broker)
+const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),simulator=new ResearchSimulator(broker),history=new HistorySync()
 
 app.use(helmet())
 app.use(cors({origin:env.CLIENT_ORIGIN}))
@@ -68,6 +69,9 @@ app.post('/api/plan',async(req,res)=>{
 
 app.get('/api/simulator',(_q,res)=>res.json({enabled:SIMULATOR_ENABLED,state:simulator.snapshot()}))
 
+// Read-only consolidated audit history; never submits or changes trades.
+app.get('/api/log-history',(_q,res)=>res.json(history.getSummary()))
+
 app.post('/api/validate-fill',(req,res)=>{
   try{
     const direction=req.body.direction==='short'?'short':'long'
@@ -79,5 +83,6 @@ app.post('/api/validate-fill',(req,res)=>{
 
 app.listen(env.PORT,'127.0.0.1',()=>{
  console.log(`ProfitMind Forex http://127.0.0.1:${env.PORT}`)
+ history.start()
  simulator.start()
 })
