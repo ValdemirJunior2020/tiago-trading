@@ -349,3 +349,155 @@ h1,h2,p{margin:0}
 .ollama-lab-feed p{padding:0 16px 16px;color:#8298b2;font-size:11px}
 @media(max-width:980px){.strategy-score-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.strategy-score-grid{grid-template-columns:1fr}.ollama-lab-event{grid-template-columns:1fr;gap:4px}.ollama-lab-feed-title{flex-wrap:wrap}}
+
+
+/* Readable OANDA account dashboard — broker figures are primary, paper results stay separate. */
+.broker-overview{
+  margin:0 0 18px;
+  padding:24px;
+  border-radius:20px;
+  border:1px solid rgba(101,230,255,.20);
+  background:linear-gradient(145deg,rgba(19,37,58,.97),rgba(10,23,39,.97));
+  box-shadow:0 18px 48px rgba(0,0,0,.23);
+  min-width:0;
+}
+.broker-overview-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:18px;flex-wrap:wrap;margin-bottom:22px;
+}
+.broker-overview-kicker{
+  display:flex;align-items:center;gap:9px;
+  color:#81e7f4;font-size:13px;font-weight:800;letter-spacing:.045em;
+  margin-bottom:8px;
+}
+.broker-overview h2{font-size:23px;letter-spacing:-.025em;line-height:1.25}
+.broker-overview-head p{
+  color:#bdcee0;font-size:13px;line-height:1.5;margin-top:8px;max-width:650px;
+}
+.broker-sync{
+  display:inline-flex;align-items:center;justify-content:center;
+  border-radius:999px;padding:9px 15px;min-height:36px;
+  font-size:13px;font-weight:800;white-space:nowrap;
+  border:1px solid rgba(250,204,21,.28);background:rgba(250,204,21,.10);color:#fbd78b;
+}
+.broker-sync.matched{color:#a0f3c8;background:rgba(60,190,138,.12);border-color:rgba(60,190,138,.36)}
+.broker-sync.mismatch{color:#ffe09b;background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.35)}
+.broker-sync.unavailable{color:#ffd3d8;background:rgba(255,143,155,.10);border-color:rgba(255,143,155,.32)}
+.broker-stat-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.broker-stat{
+  min-width:0;min-height:112px;border-radius:15px;padding:17px 16px;
+  background:rgba(5,16,30,.62);border:1px solid rgba(147,184,226,.17);
+  display:flex;flex-direction:column;justify-content:space-between;gap:10px;
+}
+.broker-stat span{
+  display:block;color:#b2c8dd;font-weight:650;font-size:13px;line-height:1.3;
+}
+.broker-stat strong{
+  display:block;color:#f7fbff;font-size:clamp(21px,1.55vw,29px);
+  letter-spacing:-.035em;line-height:1.2;
+  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;
+}
+.broker-stat strong.profit-up{color:var(--mint)}
+.broker-stat strong.profit-down{color:var(--danger)}
+.broker-overview-meta{
+  display:flex;flex-wrap:wrap;gap:10px 24px;margin-top:17px;
+  padding:14px 0;color:#b2c8dd;font-size:13px;
+  border-bottom:1px solid rgba(147,184,226,.13);
+}
+.broker-overview-meta b{color:#f2f7fc;font-weight:750;font-variant-numeric:tabular-nums}
+.broker-sync-alert{
+  margin-top:14px;padding:12px 14px;border:1px solid rgba(250,204,21,.38);
+  background:rgba(250,204,21,.10);border-radius:10px;
+  color:#fce2a3;font-size:13px;font-weight:650;overflow-wrap:anywhere;
+}
+.broker-overview-footer{
+  display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 18px;
+  margin-top:13px;font-size:12px;line-height:1.5;color:#a9bfd5;
+}
+
+/* Sidebar: clear headline and optional risk breakdown instead of unreadable micro-cards. */
+.sidebar-profit{padding:16px;margin:18px 0 12px}
+.sidebar-profit-head small{font-size:11px;letter-spacing:.045em;color:#a8f4d9}
+.sidebar-profit-head span{font-size:11px;color:#adc0d4;line-height:1.4}
+.sidebar-profit>strong{font-size:30px;margin:13px 0 10px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.profit-roi{font-size:12px;color:#b5c6d8;gap:8px}
+.profit-roi b{font-size:13px;color:#e8f1fa}
+.profit-split{gap:6px}
+.profit-split>div{padding:9px 8px;border:1px solid rgba(137,167,215,.12);border-radius:10px;background:rgba(6,18,31,.48)}
+.profit-split small{font-size:10px;color:#b1c5d9;letter-spacing:0;line-height:1.3}
+.profit-split b{font-size:13px;color:#f0f7ff;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.profit-position{gap:8px}
+.profit-position small{font-size:11px;color:#afd2d4;line-height:1.35}
+.profit-position b{font-size:13px;color:#f2f7ff}
+.sidebar-risk-details{margin-top:12px}
+.sidebar-risk-details summary{
+  color:#b7d3ec;font-size:12px;line-height:1.4;cursor:pointer;
+  padding:8px 4px;list-style-position:inside;
+}
+.sidebar-risk-details summary:hover{color:#fff}
+.sidebar-risk-details .margin-mini{margin-top:5px}
+.margin-mini small{font-size:10px;color:#a8bfd5;letter-spacing:0;line-height:1.3}
+.margin-mini b{font-size:13px;color:#e9f3ff;overflow-wrap:anywhere}
+
+/* Legibility improvements across the dashboard. */
+.nav-item{color:#a9bdd6;font-size:13px}
+.brand-mini span{color:#a4b9d3;font-size:10px}
+.mini-status small{color:#a7bdd6;font-size:11px}
+.status-strip small{color:#a8bed6;font-size:12px;letter-spacing:.035em}
+.status-strip b{font-size:13px}
+.strip-note{color:#a7bbd1;font-size:12px}
+.kicker{font-size:11px;letter-spacing:.09em}
+.panel-head p,.ai-panel p,.mindset p{font-size:13px;color:#a7bad0}
+.quote-price small,.quote-side small,.spread small{font-size:11px;color:#9eb5cd;letter-spacing:.045em}
+.quote-price strong{font-size:18px}
+.quote-side b,.spread b{font-size:14px;color:#e2edfb}
+.ai-state small{font-size:11px;color:#aec3d7}
+.ai-state b{font-size:13px}
+.ai-note{font-size:12px;color:#a9bdd3}
+.risk-card span,.risk-card small{font-size:12px;color:#afc4d9}
+.risk-card strong{font-size:26px}
+.risk-footer{font-size:12px;color:#a8bed5}
+.sim-card small,.sim-detail small{font-size:12px;color:#adc3db;letter-spacing:.03em}
+.sim-card span,.sim-detail span{font-size:12px;color:#afc3d8}
+.sim-detail b{font-size:14px}
+.sim-detail span{white-space:normal;overflow-wrap:anywhere;max-height:70px;overflow:auto}
+.tiago-live-left small{font-size:11px}
+.tiago-live-left b{font-size:13px}
+.heartbeat{font-size:11px}
+.shadow-grid small,.shadow-position small{font-size:12px;color:#adc0d7;letter-spacing:.03em}
+.shadow-grid strong{font-size:20px}
+.shadow-position b{font-size:15px}
+.shadow-position span{font-size:12px;color:#b4c5da;white-space:normal;overflow-wrap:anywhere;max-height:75px;overflow:auto}
+.strategy-score-head small{font-size:11px;color:#a7bdd6;letter-spacing:.03em}
+.strategy-score-head b{font-size:15px}
+.paper-badge,.research-badge{font-size:10px}
+.strategy-score-card>strong{font-size:28px}
+.strategy-score-metrics small{font-size:11px;color:#aabfd6;letter-spacing:.02em;line-height:1.3}
+.strategy-score-metrics b{font-size:15px;color:#edf4ff;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.strategy-score-foot{font-size:11px;color:#a5bbd1;line-height:1.4}
+.strategy-score-metrics>div{padding:12px}
+.ollama-lab-decision small,.ollama-lab-feed-title small{font-size:11px;color:#abc2d9}
+.ollama-lab-feed-title,.ollama-lab-event{font-size:12px}
+.ollama-lab-feed p{font-size:12px}
+
+/* Card columns stay readable at normal desktop, tablet and mobile widths. */
+@media(max-width:1400px){
+  .broker-stat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:1100px){
+  .strategy-score-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:820px){
+  .broker-overview{padding:19px}
+  .broker-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .broker-stat strong{font-size:clamp(21px,4.5vw,28px)}
+  .broker-overview-meta{gap:8px 16px}
+}
+@media(max-width:650px){
+  .broker-overview{padding:17px}
+  .broker-overview h2{font-size:21px}
+  .broker-stat-grid{grid-template-columns:1fr}
+  .broker-stat{min-height:85px}
+  .broker-stat strong{font-size:27px}
+  .strategy-score-grid{grid-template-columns:1fr}
+}
