@@ -605,3 +605,7 @@ h1,h2,p{margin:0}
 .ollama-cost-note svg{color:var(--ollama-pink-bright);flex:0 0 auto}
 @media(max-width:1250px){.ollama-research-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ollama-comparison{grid-column:1/-1}}
 @media(max-width:690px){.ollama-research-grid{grid-template-columns:1fr}.ollama-comparison{grid-column:auto}.ollama-lab .shadow-grid strong{font-size:20px}}
+
+.ollama-condition-list{margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,102,198,.21);display:flex;flex-wrap:wrap;gap:7px}
+.ollama-condition-list small{width:100%;font-size:11px;color:#f9c5e3;font-weight:750;line-height:1.4}
+.ollama-condition-list span{font-size:12px;line-height:1.4;color:#ffe0f0;padding:6px 9px;border-radius:8px;background:rgba(255,102,198,.10);border:1px solid rgba(255,102,198,.23)}
