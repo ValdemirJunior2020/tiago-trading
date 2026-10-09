@@ -21,6 +21,7 @@ describe('isolated Ollama opportunity scanner',()=>{
   expect(questionableRsiReason('RSI is neutral, not oversold', 'NEUTRAL')).toBe(false)
   expect(questionableRsiReason('RSI indicates overbought conditions', 'NEUTRAL')).toBe(true)
   expect(questionableRsiReason('RSI is oversold', 'OVERSOLD')).toBe(false)
+  expect(questionableRsiReason('RSI14 is low (35.5) suggesting oversold', 'NEUTRAL')).toBe(true)
  })
  it('recognizes completed-candle uptrend, momentum and volume alignment',()=>{
   const s=scanOllamaSetups(bars(1,35,5),bars(1,25,10),1.5)
