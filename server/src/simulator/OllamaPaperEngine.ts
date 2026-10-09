@@ -53,25 +53,46 @@ export async function queryIndependentOllama(market:Market):Promise<AiDecision>{
    m5:market.m5.slice(-25),m10:market.m10.slice(-20),indicators:market.indicators,
    objectivePaperSetup:market.setup,verifiedShadowBrokerExamples:market.brokerLessons,
    brokerHistoryNote:'Historical broker sample is optional context; do not default to WAIT just because confirmed broker outcomes are few.'}
-  for(let attempt=0;attempt<2;attempt++){
-   const response=await fetch(env.OLLAMA_BASE_URL+'/api/chat',{
-    method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-     model:env.OLLAMA_MODEL,stream:false,think:false,format:'json',
-     options:{temperature:0,num_predict:240},
-     messages:[
-      {role:'system',content:system},
-      {role:'user',content:JSON.stringify({...base,
-       ...(attempt?{criticalCorrection:'Your last explanation mislabeled RSI. Use the exact supplied rsiZone and decide again.'}:{})})}
-     ]
+  let failure='Model response invalid'
+  for(let attempt=0;attempt<3;attempt++){
+   try{
+    const response=await fetch(env.OLLAMA_BASE_URL+'/api/chat',{
+     method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({
+      model:env.OLLAMA_MODEL,stream:false,think:false,
+      // Ollama's structured output constrains malformed or truncated JSON.
+      format:{type:'object',properties:{
+       decision:{type:'string',enum:['BUY','SELL','WAIT','CLOSE']},
+       confidence:{type:'number',minimum:0,maximum:1},
+       reason:{type:'string',minLength:1,maxLength:250}
+      },required:['decision','confidence','reason'],additionalProperties:false},
+      options:{temperature:0,num_predict:480},
+      messages:[
+       {role:'system',content:system+' Keep reason under 250 characters. Do not include markdown.'},
+       {role:'user',content:JSON.stringify({...base,
+        ...(attempt?{criticalCorrection:'Previous output was invalid ('+failure+'). Return complete short JSON matching the provided schema; use accurate RSI zone '+market.setup.rsiZone+'.'}:{})})}
+      ]
+     })
     })
-   })
-   if(!response.ok)throw new Error('Ollama HTTP '+response.status)
-   const body=await response.json() as {message?:{content?:string}}
-   const decision=parseAiLabDecision(JSON.parse(body.message?.content||'{}'))
-   if(!questionableRsiReason(decision.reason,market.setup.rsiZone))return decision
+    if(!response.ok)throw new Error('Ollama HTTP '+response.status)
+    const body=await response.json() as {message?:{content?:string};done_reason?:string}
+    if(!body.message?.content)throw new Error('Empty Ollama message')
+    const decision=parseAiLabDecision(JSON.parse(body.message.content))
+    if(questionableRsiReason(decision.reason,market.setup.rsiZone)){
+     failure='RSI explanation inconsistent with computed RSI zone'
+     continue
+    }
+    return decision
+   }catch(error){
+    failure=error instanceof Error?error.message:String(error)
+    // Network failure or canceled request must not be disguised as a valid signal.
+    if(controller.signal.aborted)break
+   }
   }
-  return{decision:'WAIT',confidence:0,reason:'RSI classification remained inconsistent after recheck; independent paper entry withheld.'}
+  // Refuse to open a paper trade with a malformed model response.
+  // Caller records an explicit error so the UI reflects real reliability issues.
+  throw new Error('Ollama decision rejected after retries: '+failure)
+
  }finally{clearTimeout(timer)}
 }
 export class OllamaPaperEngine{
