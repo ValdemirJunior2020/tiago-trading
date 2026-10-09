@@ -4,18 +4,19 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {OllamaPaperEngine,parseAiLabDecision,queryIndependentOllama} from './OllamaPaperEngine.js'
 const dirs:string[]=[]
+const TEST_NOW=new Date('2026-10-09T19:30:00.000Z') // Fri 15:30 EDT, live market open
 const bars=(count:number,step:number)=>Array.from({length:count},(_,i)=>{
  const close=1.1+i*step
  return {time:new Date(Date.UTC(2026,9,8,10,i*5)).toISOString(),open:close-step,high:close+0.0002,low:close-0.0002,close,volume:100+i}
 })
-const quote=(bid='1.10100',ask='1.10115')=>({symbol:'EUR_USD',bid,ask,mid:String((Number(bid)+Number(ask))/2),timestamp:new Date().toISOString()})
+const quote=(bid='1.10100',ask='1.10115')=>({symbol:'EUR_USD',bid,ask,mid:String((Number(bid)+Number(ask))/2),timestamp:TEST_NOW.toISOString()})
 function setup(decision:{decision:'LONG'|'SHORT'|'WAIT'|'CLOSE';confidence:number;reason:string}={decision:'LONG',confidence:0.91,reason:'Price action paper hypothesis'}){
  const dir=mkdtempSync(join(tmpdir(),'ollama-paper-test-'));dirs.push(dir)
  let q=quote(),m5=bars(30,0.00001),reads=0
  const broker={quote:async()=>q,candles:async(_s:string,tf:string)=>{reads++;return tf==='M5'?m5:bars(25,0.00001)}}
  const calls:{count:number}={count:0}
  const decide=async()=>{calls.count++;return decision}
- const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide})
+ const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide,now:()=>TEST_NOW})
  return{engine,dir,calls,reads:()=>reads,setQuote:(v:ReturnType<typeof quote>)=>{q=v},newCandle:()=>{m5=[...m5,bars(31,0.00001).at(-1)!]}}
 }
 afterEach(()=>{vi.unstubAllGlobals();for(const d of dirs.splice(0))rmSync(d,{recursive:true,force:true})})
@@ -96,10 +97,25 @@ describe('independent Ollama broker-only signals',()=>{
   expect(engine.snapshot().realizedPL).toBe('0')
   expect(engine.snapshot().lastBrokerSignal?.key).toBe(intent?.key)
  })
+ it('does not generate market signals or repeated stale-quote skips after Friday market close',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'ollama-market-closed-'));dirs.push(dir)
+  let quotes=0,decisions=0
+  const broker={quote:async()=>{quotes++;return quote()},candles:async()=>bars(30,.00001)}
+  const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),
+   now:()=>new Date('2026-10-09T21:11:00.000Z'),decide:async()=>{decisions++;return{decision:'LONG' as const,confidence:.99,reason:'should not execute'}}})
+  await engine.process('EUR_USD');await engine.process('GBP_USD');await engine.process('EUR_USD')
+  expect(quotes).toBe(0);expect(decisions).toBe(0)
+  const result=engine.snapshot()
+  expect(result.status).toBe('MARKET_CLOSED')
+  expect(result.lastBrokerSignal).toBeNull()
+  expect(result.errors).toBe(0)
+  expect(result.events.filter((x:any)=>x.event==='OLLAMA_LAB_MARKET_CLOSED')).toHaveLength(1)
+  expect(result.events.some((x:any)=>x.event==='OLLAMA_LAB_SKIP')).toBe(false)
+ })
  it('logs model exceptions rather than opening positions',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'ollama-error-test-'));dirs.push(dir)
   const broker={quote:async()=>quote(),candles:async(_s:string,t:string)=>bars(t==='M5'?30:25,0.00001)}
-  const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide:async()=>{throw Error('model offline')}})
+  const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),now:()=>TEST_NOW,decide:async()=>{throw Error('model offline')}})
   await engine.process('EUR_USD')
   expect(engine.snapshot().status).toBe('ERROR')
   expect(engine.snapshot().errors).toBe(1)
