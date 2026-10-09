@@ -449,6 +449,10 @@ function App(){
             ?'Só trades do Ollama confirmados e etiquetados pela corretora. O saldo e a margem continuam compartilhados com Shadow. P/L virtual abaixo é separado.'
             :'Only broker-verified trades tagged to Ollama. Account balance and margin remain shared with Shadow. Virtual P/L below is separate.'}</p>
           {ollamaMirror?.latestError&&<p className="ollama-oanda-warning">⚠ {String(ollamaMirror.latestError)}</p>}
+          {ollamaMirror?.status==='REVIEW_REQUIRED'&&<button type="button" className="ollama-recheck" onClick={async()=>{
+            const r=await fetch('http://127.0.0.1:8790/api/ollama-mirror/reconcile',{method:'POST'}).catch(()=>null)
+            if(r?.ok)setOllamaMirror(await r.json())
+          }}>{lang==='pt'?'Conferir trade na OANDA (somente leitura)':'Recheck OANDA trade (read-only)'}</button>}
           {ollamaMirror?.events?.[0]&&<p className="ollama-oanda-event">{ollamaMirror.events[0].event}: {ollamaMirror.events[0].detail}</p>}
           <p className="ollama-oanda-note">{lang==='pt'
             ?'A primeira posição paper existente não é enviada retroativamente. Somente novos sinais válidos serão espelhados após verificação de segurança.'
