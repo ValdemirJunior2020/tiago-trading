@@ -51,7 +51,7 @@ describe('Ollama JSON response safeguards',()=>{
 
 })
 
-describe('independent Ollama paper experiment',()=>{
+describe('independent Ollama broker-only signals',()=>{
  it('rejects invalid decisions and confidence',()=>{
   expect(()=>parseAiLabDecision({decision:'HOLD',confidence:1,reason:'invalid'})).toThrow()
   expect(parseAiLabDecision({decision:'BUY',confidence:.9,reason:'verified candles'}).decision).toBe('LONG')
@@ -59,16 +59,23 @@ describe('independent Ollama paper experiment',()=>{
   expect(()=>parseAiLabDecision({decision:'LONG',confidence:2,reason:'invalid'})).toThrow()
   expect(parseAiLabDecision({decision:'WAIT',confidence:0.5,reason:'no setup'}).decision).toBe('WAIT')
  })
- it('opens one virtual position at most once per completed candle, persists state and writes ONLY lab files',async()=>{
+ it('produces one direct broker signal per completed candle, with NO virtual position or virtual fill',async()=>{
   const {engine,dir,calls}=setup()
   await engine.process('EUR_USD');await engine.process('EUR_USD')
   expect(calls.count).toBe(1)
-  const s=engine.snapshot()
-  expect(s.opens).toBe(1);expect(s.position?.symbol).toBe('EUR_USD')
-  expect(s.balance).toBe('1000');expect(Number(s.position?.initialRisk)).toBeLessThanOrEqual(2.5)
+  const state=engine.snapshot()
+  expect(state.opens).toBe(0)
+  expect(state.position).toBeNull()
+  expect(state.realizedPL).toBe('0')
+  expect(state.openPnl).toBe('0')
+  expect(state.executionMode).toBe('OANDA_PRACTICE_SIGNALS_ONLY')
+  expect(state.lastBrokerSignal?.symbol).toBe('EUR_USD')
+  expect(state.lastBrokerSignal?.action).toBe('OPEN')
+  expect(Number(state.lastBrokerSignal?.units)).toBeGreaterThan(0)
   expect(existsSync(join(dir,'ollama-paper-state.json'))).toBe(true)
   const trades=readFileSync(join(dir,'logs','trades.jsonl'),'utf8')
-  expect(trades).toContain('OLLAMA_LAB_PAPER_OPEN')
+  expect(trades).toContain('OLLAMA_OANDA_SIGNAL')
+  expect(trades).not.toContain('OLLAMA_LAB_PAPER_OPEN')
   expect(existsSync(join(dir,'simulator-state.json'))).toBe(false)
   expect(existsSync(join(dir,'shadow-simulator-risk.json'))).toBe(false)
  })
@@ -77,16 +84,17 @@ describe('independent Ollama paper experiment',()=>{
   await engine.process('EUR_USD');await engine.process('USD_JPY')
   expect(engine.snapshot().opens).toBe(0)
  })
- it('closes paper position on virtual stop and records realized loss independently',async()=>{
+ it('does not perform any virtual stop or claim virtual realized P/L when OANDA quote moves',async()=>{
   const {engine,setQuote}=setup()
   await engine.process('EUR_USD')
-  const p=engine.snapshot().position!
-  setQuote(quote(String(Number(p.stop)-0.0002),String(Number(p.stop)+0.0001)))
+  const intent=engine.snapshot().lastBrokerSignal
+  expect(intent?.stop).toBeTruthy()
+  setQuote(quote(String(Number(intent!.stop)-0.0002),String(Number(intent!.stop)+0.0001)))
   await engine.process('EUR_USD')
   expect(engine.snapshot().position).toBeNull()
-  expect(engine.snapshot().closes).toBe(1)
-  expect(Number(engine.snapshot().realizedPL)).toBeLessThan(0)
-  expect(engine.snapshot().stats.losses).toBe(1)
+  expect(engine.snapshot().closes).toBe(0)
+  expect(engine.snapshot().realizedPL).toBe('0')
+  expect(engine.snapshot().lastBrokerSignal?.key).toBe(intent?.key)
  })
  it('logs model exceptions rather than opening positions',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'ollama-error-test-'));dirs.push(dir)
