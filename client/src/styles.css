@@ -616,3 +616,23 @@ h1,h2,p{margin:0}
 .ollama-diagnostics .ollama-research-card>b{font-size:24px;color:#ff89d7}
 .ollama-diagnostics .ollama-research-values strong{font-size:18px;color:#ff89d7}
 @media(max-width:690px){.ollama-diagnostics{grid-template-columns:1fr}}
+
+/* OANDA broker-authoritative Ollama mirror — never combine paper P/L with broker P/L. */
+.ollama-oanda-official{margin:0 20px 16px;padding:19px;border-radius:16px;border:1px solid rgba(255,102,198,.53);background:linear-gradient(130deg,rgba(100,21,77,.58),rgba(31,15,44,.91))}
+.ollama-oanda-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.ollama-oanda-head small{display:block;color:#ffd5ec;font-size:12px;font-weight:800;letter-spacing:.06em}
+.ollama-oanda-head b{display:block;font-size:19px;color:#ff91d7;margin-top:7px;overflow-wrap:anywhere}
+.ollama-oanda-head>span{color:#fff0fa;font-size:11px;font-weight:700;background:rgba(255,103,195,.12);border:1px solid rgba(255,103,195,.35);padding:7px 9px;border-radius:9px}
+.ollama-oanda-values{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:15px}
+.ollama-oanda-values>div{padding:12px;border:1px solid rgba(255,102,198,.22);border-radius:11px;background:rgba(24,10,36,.58)}
+.ollama-oanda-values small{display:block;font-size:11px;color:#ffcee6;line-height:1.35}
+.ollama-oanda-values strong{display:block;color:#ff8bd5;font-size:clamp(18px,1.55vw,24px);line-height:1.3;margin-top:7px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ollama-oanda-official>p{margin:11px 0 0;font-size:12px;line-height:1.55;color:#f5dbeb}
+.ollama-oanda-official>p.ollama-oanda-warning{color:#ffe4a8;font-size:13px;font-weight:650}
+.ollama-oanda-official>p.ollama-oanda-event{color:#f5bddf}
+.ollama-oanda-official>p.ollama-oanda-note{color:#eec1d8}
+@media(max-width:1000px){.ollama-oanda-values{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.ollama-oanda-values{grid-template-columns:1fr 1fr}.ollama-oanda-official{margin:0 10px 14px;padding:13px}}
+
+.ollama-recheck{display:inline-flex;align-items:center;justify-content:center;margin-top:12px;padding:10px 16px;border:1px solid rgba(255,140,210,.6);border-radius:10px;background:rgba(255,102,198,.14);color:#ffe5f4;font-size:13px;font-weight:750;cursor:pointer}
+.ollama-recheck:hover{background:rgba(255,102,198,.24)}

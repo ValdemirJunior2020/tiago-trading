@@ -56,6 +56,7 @@ function App(){
   const[loading,setLoading]=useState(false)
   const[sim,setSim]=useState<any>(null)
   const[oandaAudit,setOandaAudit]=useState<any>(null)
+  const[ollamaMirror,setOllamaMirror]=useState<any>(null)
   const[notify,setNotify]=useState(false)
   const[activityIndex,setActivityIndex]=useState(0)
   const x=copy[lang]
@@ -63,15 +64,16 @@ function App(){
   const load=async()=>{
     setLoading(true)
     try{
-      const[h,a,p,sm,audit,...qs]=await Promise.all([
+      const[h,a,p,sm,audit,mirror,...qs]=await Promise.all([
         fetch('http://127.0.0.1:8790/health').then(r=>r.json()).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
         fetch('http://127.0.0.1:8790/api/simulator').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/oanda-audit').then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch('http://127.0.0.1:8790/api/ollama-mirror').then(r=>r.ok?r.json():null).catch(()=>null),
         ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8790/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
       ])
-      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm?.state||null);setOandaAudit(audit)
+      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm?.state||null);setOandaAudit(audit);setOllamaMirror(mirror)
       const next:Record<string,Quote>={}
       qs.forEach((q:any)=>{if(q?.symbol)next[q.symbol]=q})
       setQuotes(next)
@@ -428,6 +430,33 @@ function App(){
           <b>{health?.ollama?(lang==='pt'?'Ollama conectado':'Ollama connected'):(lang==='pt'?'Ollama desconectado':'Ollama disconnected')}</b>
           <span>{lang==='pt'?'Motor:':'Engine:'} {sim?.ollamaPaperExperiment?.status??'WAITING'}</span>
           <span>{lang==='pt'?'Última análise:':'Last analysis:'} {sim?.ollamaPaperExperiment?.lastReviewedAt?new Date(sim.ollamaPaperExperiment.lastReviewedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):(lang==='pt'?'aguardando':'waiting')}</span>
+        </div>
+        <div className="ollama-oanda-official">
+          <div className="ollama-oanda-head">
+            <div>
+              <small>OANDA PRACTICE • OLLAMA • {lang==='pt'?'FONTE OFICIAL':'BROKER SOURCE'}</small>
+              <b>{ollamaMirror?.status??(lang==='pt'?'Aguardando integração':'Waiting for mirror status')}</b>
+            </div>
+            <span>{lang==='pt'?'MESMA CONTA • TRADE ID ISOLADO':'SAME ACCOUNT • SEPARATE TRADE ID'}</span>
+          </div>
+          <div className="ollama-oanda-values">
+            <div><small>{lang==='pt'?'P/L REALIZADO NA OANDA':'REALIZED OANDA P/L'}</small><strong>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</strong></div>
+            <div><small>{lang==='pt'?'TRADE ID OANDA':'OANDA TRADE ID'}</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
+            <div><small>{lang==='pt'?'FECHADOS NA OANDA':'BROKER CLOSED TRADES'}</small><strong>{ollamaMirror?.closedTrades??'—'}</strong></div>
+            <div><small>{lang==='pt'?'PAR ATUAL':'CURRENT PAIR'}</small><strong>{ollamaMirror?.activeSymbol?String(ollamaMirror.activeSymbol).replace('_','/'):'—'}</strong></div>
+          </div>
+          <p>{lang==='pt'
+            ?'Só trades do Ollama confirmados e etiquetados pela corretora. O saldo e a margem continuam compartilhados com Shadow. P/L virtual abaixo é separado.'
+            :'Only broker-verified trades tagged to Ollama. Account balance and margin remain shared with Shadow. Virtual P/L below is separate.'}</p>
+          {ollamaMirror?.latestError&&<p className="ollama-oanda-warning">⚠ {String(ollamaMirror.latestError)}</p>}
+          {ollamaMirror?.status==='REVIEW_REQUIRED'&&<button type="button" className="ollama-recheck" onClick={async()=>{
+            const r=await fetch('http://127.0.0.1:8790/api/ollama-mirror/reconcile',{method:'POST'}).catch(()=>null)
+            if(r?.ok)setOllamaMirror(await r.json())
+          }}>{lang==='pt'?'Conferir trade na OANDA (somente leitura)':'Recheck OANDA trade (read-only)'}</button>}
+          {ollamaMirror?.events?.[0]&&<p className="ollama-oanda-event">{ollamaMirror.events[0].event}: {ollamaMirror.events[0].detail}</p>}
+          <p className="ollama-oanda-note">{lang==='pt'
+            ?'A primeira posição paper existente não é enviada retroativamente. Somente novos sinais válidos serão espelhados após verificação de segurança.'
+            :'Any existing paper position is never opened retroactively. Only new validated signals are mirrored after safety checks.'}</p>
         </div>
         <div className="ollama-diagnostics">
           <div className="ollama-research-card">
