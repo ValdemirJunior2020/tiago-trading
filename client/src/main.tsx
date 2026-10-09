@@ -55,6 +55,7 @@ function App(){
   const[quotes,setQuotes]=useState<Record<string,Quote>>({})
   const[loading,setLoading]=useState(false)
   const[sim,setSim]=useState<any>(null)
+  const[oandaAudit,setOandaAudit]=useState<any>(null)
   const[notify,setNotify]=useState(false)
   const[activityIndex,setActivityIndex]=useState(0)
   const x=copy[lang]
@@ -62,14 +63,15 @@ function App(){
   const load=async()=>{
     setLoading(true)
     try{
-      const[h,a,p,sm,...qs]=await Promise.all([
+      const[h,a,p,sm,audit,...qs]=await Promise.all([
         fetch('http://127.0.0.1:8790/health').then(r=>r.json()).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
         fetch('http://127.0.0.1:8790/api/simulator').then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch('http://127.0.0.1:8790/api/oanda-audit').then(r=>r.ok?r.json():null).catch(()=>null),
         ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8790/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
       ])
-      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm?.state||null)
+      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm?.state||null);setOandaAudit(audit)
       const next:Record<string,Quote>={}
       qs.forEach((q:any)=>{if(q?.symbol)next[q.symbol]=q})
       setQuotes(next)
@@ -214,6 +216,22 @@ function App(){
         <div className="strip-note">{x.updated}</div>
       </section>
 
+      <section style={{padding:'16px 20px',margin:'12px 0',border:'1px solid rgba(148,163,184,.25)',borderRadius:14,background:'rgba(15,23,42,.7)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap',alignItems:'center'}}>
+          <strong>OANDA • {lang==='pt'?'FONTE OFICIAL':'BROKER SOURCE OF TRUTH'}</strong>
+          <b style={{color:oandaAudit?.syncStatus==='MATCHED'?'#4ade80':'#fbbf24'}}>{oandaAudit?.syncStatus||'UNAVAILABLE'}</b>
+        </div>
+        <p style={{opacity:.75,fontSize:12}}>{lang==='pt'?'Saldo e resultados da OANDA via API; Shadow permanece simulação separada.':'OANDA values from broker API; Shadow remains a separate simulation.'}</p>
+        <div style={{display:'flex',gap:24,flexWrap:'wrap'}}>
+          <div><small>OANDA BALANCE</small><div><b>{oandaAudit?money(oandaAudit.balance):'—'}</b></div></div>
+          <div><small>OANDA EQUITY</small><div><b>{oandaAudit?money(oandaAudit.equity):'—'}</b></div></div>
+          <div><small>OANDA UNREALIZED P/L</small><div><b>{oandaAudit?signedMoney(oandaAudit.unrealizedPL):'—'}</b></div></div>
+          <div><small>OANDA ACCOUNT P/L</small><div><b>{oandaAudit?signedMoney(oandaAudit.accountRealizedPL):'—'}</b></div></div>
+          <div><small>OANDA OPEN TRADES</small><div><b>{oandaAudit?.openTrades?.length??'—'}</b></div></div>
+        </div>
+        {oandaAudit?.issues?.length>0&&<p style={{color:'#fbbf24',fontWeight:700}}>SYNC ALERT: {oandaAudit.issues.join(' • ')}</p>}
+        <small style={{opacity:.65}}>API snapshot: {oandaAudit?.retrievedAt??'unavailable'} • Account P/L is broker account-wide, not Shadow-only</small>
+      </section>
       <section className="metrics">
         <Metric icon={<WalletCards/>} label={x.balance} value={money(account?.balance)} meta="Broker balance"/>
         <Metric icon={<Activity/>} label={x.equity} value={money(account?.equity)} meta={`24h DD ${drawdown.toFixed(2)}%`}/>
