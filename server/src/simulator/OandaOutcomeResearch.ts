@@ -5,15 +5,37 @@ import {strategyContext} from '../indicators.js'
 import type {Candle} from '../indicators.js'
 import type {OandaReadOnly} from '../broker/OandaReadOnly.js'
 
-type Broker=Pick<OandaReadOnly,'closedTrades'|'candlesBefore'>
+type Broker=Pick<OandaReadOnly,'closedTrades'|'candlesBefore'|'candlesDuring'>
 export type MarketFeatures={
  rsi14:number;bbPosition:'BELOW_LOWER'|'ABOVE_UPPER'|'INSIDE';volumeRatio:number;
  macroTrend:'UP'|'DOWN';close:number;macroSma20:number;macroClose:number
 }
+export type ChartTimeframe='M1'|'M5'|'M10'|'M15'|'H1'
+export type JourneyTimeframe=ChartTimeframe|'H4'|'D'|'W'
+export type ChartWindow={timeframe:ChartTimeframe;bars:Candle[]}
+export type SixChartSet={
+ windows:ChartWindow[];journey:{bars:Candle[];granularity:JourneyTimeframe;complete:boolean;note:string};
+ entryTime:string;exitTime:string;entryPrice:string|null;exitPrice:string|null;
+ stopPrice:string|null;targetPrice:string|null;source:'OANDA_COMPLETED_MID_CANDLES'
+}
+const minute=60000
+const granularityMinutes:Record<JourneyTimeframe,number>={M1:1,M5:5,M10:10,M15:15,H1:60,H4:240,D:1440,W:10080}
+export function journeyGranularity(start:string,end:string):JourneyTimeframe{
+ const duration=(Date.parse(end)-Date.parse(start))/minute
+ if(!Number.isFinite(duration)||duration<=0)throw Error('Invalid historical trade duration')
+ for(const tf of ['M1','M5','M10','M15','H1','H4','D','W'] as JourneyTimeframe[]){
+  if(duration/granularityMinutes[tf]<=180)return tf
+ }
+ throw Error('Trade duration exceeds full-chart resolution')
+}
+export function chartCoverage(charts:SixChartSet|null|undefined){
+ return charts?charts.windows.filter(w=>w.bars.length>=2).length+
+  (charts.journey.bars.length>=2&&charts.journey.complete?1:0):0
+}
 export type VerifiedLesson={
  tradeId:string;symbol:string;direction:'LONG'|'SHORT';openedAt:string;closedAt:string;
  realizedPL:number;outcome:'WIN'|'LOSS'|'FLAT';features:MarketFeatures|null;
- charts?:{beforeEntry:Candle[];beforeExit:Candle[];granularity:'M5';entryTime:string;exitTime:string}
+ charts?:SixChartSet
 }
 type Status='WAITING'|'READY'|'UNAVAILABLE'
 type Options={mirrorLogFile?:string;now?:()=>Date;refreshMs?:number}
@@ -80,7 +102,7 @@ export class OandaOutcomeResearch{
  private lastAttempt=0
  private lessons:VerifiedLesson[]=[]
  private contextCache=new Map<string,MarketFeatures|null>()
- private chartCache=new Map<string,{beforeEntry:Candle[];beforeExit:Candle[];granularity:'M5';entryTime:string;exitTime:string}>()
+ private chartCache=new Map<string,SixChartSet>()
  private status:Status='WAITING'
  private lastSync:string|null=null
  private error:string|null=null
@@ -100,14 +122,23 @@ export class OandaOutcomeResearch{
   unattributedBrokerTrades:this.missingAttribution,historyCap:this.historyCap,
   summary:summarizeBrokerLessons(this.lessons),
   examples:this.lessons.slice(-8).reverse(),
-  chartCoverage:this.lessons.filter(t=>t.charts?.beforeEntry.length&&t.charts?.beforeExit.length).length
+  chartCoverage:this.lessons.filter(t=>chartCoverage(t.charts)===6).length,
+  chartPartial:this.lessons.filter(t=>chartCoverage(t.charts)>0&&chartCoverage(t.charts)<6).length
  }}
  lessonsFor(symbol:string){return this.lessons.filter(x=>x.symbol===symbol&&x.features).slice(-6).map(x=>({
   outcome:x.outcome,realizedPL:x.realizedPL,direction:x.direction,features:x.features,
   chartEvidence:x.charts?{
-   beforeEntryCloses:x.charts.beforeEntry.slice(-12).map(c=>Number(c.close.toFixed(6))),
-   beforeExitCloses:x.charts.beforeExit.slice(-12).map(c=>Number(c.close.toFixed(6))),
-   granularity:x.charts.granularity,entryTime:x.charts.entryTime,exitTime:x.charts.exitTime
+   // Model sees OBSERVED OHLC midpoint sequences, not screenshots or the final trade price.
+   entryWindows:x.charts.windows.filter(w=>w.bars.length>=2).map(w=>({
+    timeframe:w.timeframe,closes:w.bars.slice(-12).map(c=>Number(c.close.toFixed(6)))
+   })),
+   intratrade:x.charts.journey.bars.length>=2?{
+    timeframe:x.charts.journey.granularity,
+    closes:x.charts.journey.bars.filter((_,i)=>i%Math.max(1,Math.ceil(x.charts!.journey.bars.length/12))===0)
+     .slice(-12).map(c=>Number(c.close.toFixed(6))),
+    complete:x.charts.journey.complete
+   }:null,
+   entryTime:x.charts.entryTime,exitTime:x.charts.exitTime
   }:null,
   note:'Actual OANDA closed trade, confirmed Shadow mirror ID. Observational sample, not a forecast.'
  }))}
@@ -125,6 +156,35 @@ export class OandaOutcomeResearch{
    const usable=raw.filter(t=>t.state==='CLOSED'&&Number.isFinite(Number(t.realizedPL))&&
     /^\w{3}_USD$/.test(t.instrument)&&Number.isFinite(Date.parse(t.openTime))&&Number.isFinite(Date.parse(t.closeTime)))
    const matched=usable.filter(t=>ids.has(String(t.id))).sort((a,b)=>Date.parse(a.closeTime)-Date.parse(b.closeTime))
+   // Research only. Never changes broker orders or Shadow's strategy.
+   // A maximum of one newly attributed trade gets expensive chart history per refresh.
+   // Older trades remain eligible on subsequent refreshes; avoid unbounded OANDA traffic.
+   const chartTarget=[...matched].reverse().find(t=>!this.chartCache.has(String(t.id)))
+   if(chartTarget){
+    const t=chartTarget
+    const timeframes=['M1','M5','M10','M15','H1'] as ChartTimeframe[]
+    const wanted=journeyGranularity(t.openTime,t.closeTime)
+    const requests=await Promise.allSettled([
+     ...timeframes.map(tf=>this.broker.candlesBefore(t.instrument,tf,t.openTime,50)),
+     this.broker.candlesDuring(t.instrument,wanted,t.openTime,t.closeTime)
+    ])
+    const windows=timeframes.map((tf,i)=>({timeframe:tf,bars:requests[i].status==='fulfilled'
+      ?(requests[i] as PromiseFulfilledResult<Candle[]>).value.slice(-50):[]}))
+    const full=requests[5].status==='fulfilled'?(requests[5] as PromiseFulfilledResult<Candle[]>).value:[]
+    const journeyComplete=requests[5].status==='fulfilled'&&full.length>=2
+    const validPrice=(p:unknown)=>typeof p==='string'&&Number.isFinite(Number(p))&&Number(p)>0?p:null
+    const chart:SixChartSet={
+     source:'OANDA_COMPLETED_MID_CANDLES',
+     entryTime:t.openTime,exitTime:t.closeTime,
+     entryPrice:validPrice(t.price),exitPrice:validPrice(t.averageClosePrice),
+     stopPrice:validPrice(t.stopLossOrder?.price),targetPrice:validPrice(t.takeProfitOrder?.price),
+     windows,journey:{bars:full,granularity:wanted,complete:journeyComplete,
+      note:journeyComplete?'Completed historical OANDA midpoint candles throughout broker trade; no interpolation.':
+        'Full intratrade path unavailable or too sparse at selected granularity; no missing candles fabricated.'}
+    }
+    // Retain complete/partial coverage. Incomplete windows are clearly marked unavailable in UI.
+    this.chartCache.set(String(t.id),chart)
+   }
    const lessons:VerifiedLesson[]=[]
    // Bound broker requests to keep the local research assistant responsive.
    const contextIds=new Set(matched.filter(t=>!this.contextCache.has(String(t.id))).slice(-4).map(t=>String(t.id)))
@@ -138,11 +198,7 @@ export class OandaOutcomeResearch{
       ])
       features=featuresFromCandles(m5,m10)
       this.contextCache.set(String(t.id),features)
-      // Different chart windows: completed OANDA mid candles prior to entry and exit.
-      try{
-       const exitM5=await this.broker.candlesBefore(t.instrument,'M5',t.closeTime,60)
-       this.chartCache.set(String(t.id),{beforeEntry:m5.slice(-35),beforeExit:exitM5.slice(-40),granularity:'M5',entryTime:t.openTime,exitTime:t.closeTime})
-      }catch{/* Indicators remain available; chart coverage is explicitly partial. */}
+
      }catch{this.contextCache.set(String(t.id),null)}
     }
     const pl=Number(t.realizedPL)
