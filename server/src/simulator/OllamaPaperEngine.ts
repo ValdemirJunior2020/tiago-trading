@@ -202,7 +202,7 @@ export class OllamaPaperEngine{
    this.newDay()
    this.manage(symbol,q)
    // Research is isolated and read-only: failures never become Shadow decisions.
-   if(this.research)await this.research.refresh()
+   if(this.research)void this.research.refresh().catch(()=>{})
    const [m5,m10]=await Promise.all([this.broker.candles(symbol,'M5',40),this.broker.candles(symbol,'M10',25)])
    const last=m5.at(-1)
    if(!last||m5.length<25||m10.length<20){this.record('OLLAMA_LAB_SKIP',{symbol,reason:'Insufficient completed candles'});return}
