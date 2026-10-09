@@ -379,8 +379,8 @@ function App(){
           <StrategyPerformanceCard
             name="OLLAMA AI LAB"
             ollamaAccent
-            status={sim?.ollamaPaperExperiment?.position?(lang==='pt'?'PAPER • posição aberta':'PAPER • position open'):(lang==='pt'?'IA INDEPENDENTE':'INDEPENDENT AI')}
-            stats={sim?.strategyPerformance?.OLLAMA_AI_LAB}
+            status={ollamaMirror?.tradeId?(lang==='pt'?'OANDA • operação confirmada':'OANDA • broker-confirmed position'):(lang==='pt'?'OANDA PRACTICE • esperando sinal':'OANDA PRACTICE • waiting for signal')}
+            stats={undefined}
             lang={lang}
             researchOnly
           />
@@ -422,9 +422,9 @@ function App(){
           <div>
             <span className="kicker"><BrainCircuit size={15}/> OLLAMA AI LAB • OANDA RESEARCH</span>
             <h2>{lang==='pt'?'IA independente trabalhando':'Independent AI at work'}</h2>
-            <p>{lang==='pt'?'Pesquisa isolada de US$1.000: BUY / SELL / WAIT sobre candles e indicadores da OANDA. Custos paper incluem spread e slippage estimado. Nenhuma ordem enviada à OANDA.':'Independent $1,000 paper research: BUY / SELL / WAIT using OANDA candles and indicators. Simulated fills include spread and estimated slippage. No OANDA orders.'}</p>
+            <p>{lang==='pt'?'Sinais independentes da IA para a OANDA Practice, com risco limitado a US$2,50 por ordem. Sem operações virtuais novas. Todas as entradas exigem confirmação da corretora.':'AI signals submit only to OANDA Practice subject to a $2.50 maximum initial stop risk. No new virtual positions; broker confirmation required.'}</p>
           </div>
-          <span className="locked-pill">PAPER ONLY</span>
+          <span className="locked-pill">OANDA PRACTICE ONLY</span>
         </div>
         <div className="ollama-lab-status">
           <span className={health?.ollama?'pulse-dot':'offline-dot'}/>
@@ -447,8 +447,8 @@ function App(){
             <div><small>{lang==='pt'?'PAR ATUAL':'CURRENT PAIR'}</small><strong>{ollamaMirror?.activeSymbol?String(ollamaMirror.activeSymbol).replace('_','/'):'—'}</strong></div>
           </div>
           <p>{lang==='pt'
-            ?'Só trades do Ollama confirmados e etiquetados pela corretora. O saldo e a margem continuam compartilhados com Shadow. P/L virtual abaixo é separado.'
-            :'Only broker-verified trades tagged to Ollama. Account balance and margin remain shared with Shadow. Virtual P/L below is separate.'}</p>
+            ?'Trades exclusivos do Ollama confirmados pela corretora. O saldo e a margem continuam compartilhados com Shadow. Nenhum ganho virtual é contabilizado.'
+             :'Only broker-verified trades tagged to Ollama. Account equity and margin are shared with Shadow. No virtual profit is counted.'}</p>
           {ollamaMirror?.latestError&&<p className="ollama-oanda-warning">⚠ {String(ollamaMirror.latestError)}</p>}
           {ollamaMirror?.status==='REVIEW_REQUIRED'&&<button type="button" className="ollama-recheck" onClick={async()=>{
             const r=await fetch('http://127.0.0.1:8790/api/ollama-mirror/reconcile',{method:'POST'}).catch(()=>null)
@@ -456,8 +456,8 @@ function App(){
           }}>{lang==='pt'?'Conferir trade na OANDA (somente leitura)':'Recheck OANDA trade (read-only)'}</button>}
           {ollamaMirror?.events?.[0]&&<p className="ollama-oanda-event">{ollamaMirror.events[0].event}: {ollamaMirror.events[0].detail}</p>}
           <p className="ollama-oanda-note">{lang==='pt'
-            ?'A primeira posição paper existente não é enviada retroativamente. Somente novos sinais válidos serão espelhados após verificação de segurança.'
-            :'Any existing paper position is never opened retroactively. Only new validated signals are mirrored after safety checks.'}</p>
+            ?'Operações virtuais antigas não são enviadas retroativamente. Novos sinais elegíveis do Ollama serão enviados somente à OANDA Practice.'
+             :'Old virtual positions are never opened retroactively. New eligible Ollama signals are submitted only to OANDA Practice.'}</p>
         </div>
         <div className="ollama-diagnostics">
           <OllamaChartLab data={sim?.ollamaPaperExperiment?.brokerLearning} lang={lang}/>
@@ -471,7 +471,7 @@ function App(){
             <p>{sim?.ollamaPaperExperiment?.lastSetup?.missing?.length
               ?(lang==='pt'?'Confirmações faltando: ':'Missing confirmations: ')+sim.ollamaPaperExperiment.lastSetup.missing.join(' · ')
               :(lang==='pt'?'Avaliando novos candles fechados da OANDA.':'Evaluating new completed OANDA candles.')}</p>
-            <p>{lang==='pt'?'O scanner é independente: não envia ordens nem modifica Shadow 3/4.':'Independent scanner: it never submits orders or modifies Shadow 3/4.'}</p>
+            <p>{lang==='pt'?'Scanner independente: envia somente novos sinais qualificados ao executor OANDA Practice e nunca altera o Shadow 3/4.':'Independent scanner sends only qualified new signals to the Practice executor; Shadow 3/4 is untouched.'}</p>
           </div>
           <div className="ollama-research-card">
             <small>{lang==='pt'?'WAITs INVESTIGADOS · 3 CANDLES':'WAIT REVIEWS · NEXT 3 CANDLES'}</small>
@@ -522,29 +522,31 @@ function App(){
           <div className="ollama-research-card ollama-comparison">
             <small>{lang==='pt'?'COMPARAÇÃO · MESMO PERÍODO':'COMPARISON · SAME TIME WINDOW'}</small>
             <div className="ollama-compare-line"><span>Shadow • OANDA</span><b>{signedMoney(sim?.ollamaPaperExperiment?.comparison?.brokerShadow?.netPL??0)}</b><em>{sim?.ollamaPaperExperiment?.comparison?.brokerShadow?.trades??0} {lang==='pt'?'fechados':'closed'}</em></div>
-            <div className="ollama-compare-line"><span>Ollama • Paper</span><b>{signedMoney(sim?.ollamaPaperExperiment?.comparison?.ollamaPaper?.netPL??0)}</b><em>{sim?.ollamaPaperExperiment?.comparison?.ollamaPaper?.trades??0} {lang==='pt'?'fechados':'closed'}</em></div>
-            <p>{lang==='pt'?'Janela desde o início do paper Ollama. Capital e tamanhos das operações diferentes: não é comparação de retorno ajustado por risco.':'Window since Ollama paper start. Capital and position sizing differ; not a risk-adjusted return comparison.'}</p>
+            <div className="ollama-compare-line"><span>Ollama • OANDA</span><b>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</b><em>{ollamaMirror?.closedTrades??'—'} {lang==='pt'?'fechados':'closed'}</em></div>
+            <p>{lang==='pt'?'P/L realizado confirmado pela OANDA; métricas de estratégia e tamanho de posição não são comparáveis diretamente.':'OANDA-confirmed realized P/L; strategy capital and position sizing are not directly comparable.'}</p>
           </div>
         </div>
         <div className="ollama-cost-note"><ShieldCheck size={15}/>
-          <span>{lang==='pt'?'Apenas paper · spread OANDA bid/ask + ':'Paper only · OANDA bid/ask spread + '}{sim?.ollamaPaperExperiment?.executionCosts?.assumedSlippagePipsPerSide??0.2} {lang==='pt'?'pip de slippage por lado · sem custos de financiamento':'pip assumed slippage per side · financing not modeled'}</span>
+          <span>{lang==='pt'?'Somente OANDA Practice · execução, stops e alvos confirmados pela corretora · sem contabilizar resultados simulados':'OANDA Practice only · broker-executed trades, stops and targets · no simulated results counted'}</span>
         </div>
         <div className="shadow-grid">
-          <div><small>{lang==='pt'?'SALDO VIRTUAL':'PAPER BALANCE'}</small><strong>{money(sim?.ollamaPaperExperiment?.balance)}</strong></div>
-          <div><small>{lang==='pt'?'LUCRO REALIZADO':'REALIZED P/L'}</small><strong className={Number(sim?.ollamaPaperExperiment?.realizedPL)>0?'profit-up':Number(sim?.ollamaPaperExperiment?.realizedPL)<0?'profit-down':''}>{signedMoney(sim?.ollamaPaperExperiment?.realizedPL??0)}</strong></div>
-          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><strong>{signedMoney(sim?.ollamaPaperExperiment?.openPnl??0)}</strong></div>
-          <div><small>{lang==='pt'?'PATRIMÔNIO VIRTUAL':'PAPER EQUITY'}</small><strong>{money(sim?.ollamaPaperExperiment?.equity)}</strong></div>
-          <div><small>{lang==='pt'?'ANÁLISES REAIS':'MODEL REVIEWS'}</small><strong>{sim?.ollamaPaperExperiment?.decisions??0}</strong></div>
-          <div><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.ollamaPaperExperiment?.signals??0}</strong></div>
-          <div><small>{lang==='pt'?'ABERTAS / FECHADAS':'OPENED / CLOSED'}</small><strong>{sim?.ollamaPaperExperiment?.opens??0} / {sim?.ollamaPaperExperiment?.closes??0}</strong></div>
-          <div><small>{lang==='pt'?'FALHAS REGISTRADAS':'RECORDED ERRORS'}</small><strong>{sim?.ollamaPaperExperiment?.errors??0}</strong></div>
+          <div><small>{lang==='pt'?'LUCRO REALIZADO • OANDA':'REALIZED P/L • OANDA'}</small><strong>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</strong></div>
+          <div><small>{lang==='pt'?'EM ABERTO • OANDA':'OPEN P/L • OANDA'}</small><strong>{ollamaMirror?.brokerOpenPL!=null?signedMoney(ollamaMirror.brokerOpenPL):'—'}</strong></div>
+          <div><small>{lang==='pt'?'TRADE ID OANDA':'OANDA TRADE ID'}</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
+          <div><small>{lang==='pt'?'TRADES FECHADOS • OANDA':'CLOSED TRADES • OANDA'}</small><strong>{ollamaMirror?.closedTrades??'—'}</strong></div>
+          <div><small>{lang==='pt'?'ANÁLISES DA IA':'AI REVIEWS'}</small><strong>{sim?.ollamaPaperExperiment?.decisions??'—'}</strong></div>
+          <div><small>{lang==='pt'?'SINAIS GERADOS':'SIGNALS GENERATED'}</small><strong>{sim?.ollamaPaperExperiment?.signals??'—'}</strong></div>
+          <div><small>{lang==='pt'?'ESTADO DA OANDA':'BROKER STATUS'}</small><strong>{ollamaMirror?.status??'—'}</strong></div>
+          <div><small>{lang==='pt'?'FALHAS DA IA':'MODEL ERRORS'}</small><strong>{sim?.ollamaPaperExperiment?.errors??'—'}</strong></div>
         </div>
         <div className="shadow-position">
-          <small>{lang==='pt'?'POSIÇÃO EXCLUSIVA DA IA':'AI-ONLY POSITION'}</small>
-          <b>{sim?.ollamaPaperExperiment?.position?String(sim.ollamaPaperExperiment.position.symbol).replace('_','/')+' • '+String(sim.ollamaPaperExperiment.position.direction).toUpperCase():(lang==='pt'?'Nenhuma operação aberta':'No active trade')}</b>
-          {sim?.ollamaPaperExperiment?.position
-            ?<span>{lang==='pt'?'Entrada':'Entry'} {sim.ollamaPaperExperiment.position.entry} | Stop {sim.ollamaPaperExperiment.position.stop} | Target {sim.ollamaPaperExperiment.position.target} | Units {sim.ollamaPaperExperiment.position.units}</span>
-            :<span>{lang==='pt'?'A IA só abre operação quando decide com confiança suficiente e passa nas regras de risco.':'AI opens only on sufficiently confident decisions passing risk rules.'}</span>}
+          <small>{lang==='pt'?'POSIÇÃO OLLAMA • CONFIRMADA NA OANDA':'OLLAMA POSITION • OANDA VERIFIED'}</small>
+          <b>{ollamaMirror?.tradeId
+            ?String(ollamaMirror.activeSymbol??'').replace('_','/')+' • '+String(ollamaMirror.activeDirection??'').toUpperCase()+' • #'+ollamaMirror.tradeId
+            :(lang==='pt'?'Nenhuma posição confirmada na OANDA':'No broker-confirmed position')}</b>
+          <span>{ollamaMirror?.tradeId
+            ?(lang==='pt'?'Entrada confirmada: ':'Confirmed broker entry: ')+(ollamaMirror.brokerFillPrice??'—')+' | Stop '+(ollamaMirror.mirroredStop??'—')
+            :(lang==='pt'?'A IA continuará analisando candles até surgir uma entrada permitida pela OANDA Practice.':'The AI keeps analyzing candles until a new OANDA Practice entry passes broker safety checks.')}</span>
         </div>
         <div className="ollama-lab-decision">
           <small>{lang==='pt'?'ÚLTIMA DECISÃO DA IA':'LATEST AI DECISION'}</small>
