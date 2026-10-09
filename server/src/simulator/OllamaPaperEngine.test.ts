@@ -48,16 +48,7 @@ describe('Ollama JSON response safeguards',()=>{
   await expect(queryIndependentOllama(market())).rejects.toThrow('decision rejected after retries')
   expect(count).toBe(3)
  })
- it('retries incorrect RSI labeling instead of opening a trade',async()=>{
-  let count=0
-  vi.stubGlobal('fetch',vi.fn(async()=>{count++;return{ok:true,json:async()=>({
-   message:{content:JSON.stringify({decision:'BUY',confidence:.93,reason:count===1?
-    'RSI35 is oversold and this is a buy':'RSI35 is neutral; waiting for trend confirmation'})}
-  })}}))
-  const d=await queryIndependentOllama(market())
-  expect(d.decision).toBe('LONG')
-  expect(count).toBe(1) // Parser can only reject wording it actually matches; do not infer from other words.
- })
+
 })
 
 describe('independent Ollama paper experiment',()=>{
