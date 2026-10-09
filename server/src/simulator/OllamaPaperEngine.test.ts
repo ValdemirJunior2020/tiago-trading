@@ -1,8 +1,8 @@
-import {describe,it,expect,afterEach} from 'vitest'
+import {describe,it,expect,afterEach,vi} from 'vitest'
 import {mkdtempSync,rmSync,existsSync,readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {OllamaPaperEngine,parseAiLabDecision} from './OllamaPaperEngine.js'
+import {OllamaPaperEngine,parseAiLabDecision,queryIndependentOllama} from './OllamaPaperEngine.js'
 const dirs:string[]=[]
 const bars=(count:number,step:number)=>Array.from({length:count},(_,i)=>{
  const close=1.1+i*step
@@ -18,7 +18,39 @@ function setup(decision:{decision:'LONG'|'SHORT'|'WAIT'|'CLOSE';confidence:numbe
  const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide})
  return{engine,dir,calls,reads:()=>reads,setQuote:(v:ReturnType<typeof quote>)=>{q=v},newCandle:()=>{m5=[...m5,bars(31,0.00001).at(-1)!]}}
 }
-afterEach(()=>{for(const d of dirs.splice(0))rmSync(d,{recursive:true,force:true})})
+afterEach(()=>{vi.unstubAllGlobals();for(const d of dirs.splice(0))rmSync(d,{recursive:true,force:true})})
+describe('Ollama JSON response safeguards',()=>{
+ const market=()=>({symbol:'EUR_USD',quote:quote(),position:null,balance:'1000',m5:bars(30,.00001),m10:bars(25,.00001),
+  indicators:{rsi14:35,bbPosition:'INSIDE',volumeRatio:.9,macroTrend:'DOWN',close:1.1,macroSma20:1.1,macroClose:1.09},
+  setup:{rsiZone:'NEUTRAL',direction:'NONE',score:3,maxScore:5,qualified:false,kind:'NO_QUALIFIED_SETUP',
+   source:'COMPLETED_OANDA_CANDLES',rsi14:35,spreadPips:1,checks:[],missing:[],details:''},
+  brokerLessons:[]}) as any
+ it('retries truncated JSON, uses constrained output and accepts a valid response',async()=>{
+  let count=0
+  vi.stubGlobal('fetch',vi.fn(async(_url:string,opts:any)=>{
+   const request=JSON.parse(opts.body)
+   expect(request.format.type).toBe('object')
+   expect(request.format.properties.reason.maxLength).toBe(250)
+   count++
+   return {ok:true,json:async()=>({message:{content:count===1?
+    '{"decision":"BUY","confidence":0.85,"reason":"broken':
+    '{"decision":"WAIT","confidence":0.6,"reason":"RSI neutral; no trend confirmation"}'}})}
+  }))
+  const decision=await queryIndependentOllama(market())
+  expect(count).toBe(2)
+  expect(decision.decision).toBe('WAIT')
+ })
+ it('retries invalid oversized reason and rejects persistent malformed output',async()=>{
+  let count=0
+  vi.stubGlobal('fetch',vi.fn(async()=>{count++;return{ok:true,json:async()=>({
+   message:{content:JSON.stringify({decision:'BUY',confidence:.96,reason:'x'.repeat(500)})}
+  })}}))
+  await expect(queryIndependentOllama(market())).rejects.toThrow('decision rejected after retries')
+  expect(count).toBe(3)
+ })
+
+})
+
 describe('independent Ollama paper experiment',()=>{
  it('rejects invalid decisions and confidence',()=>{
   expect(()=>parseAiLabDecision({decision:'HOLD',confidence:1,reason:'invalid'})).toThrow()
