@@ -376,14 +376,14 @@ function App(){
             lang={lang}
             researchOnly
           />
-          <StrategyPerformanceCard
-            name="OLLAMA AI LAB"
-            ollamaAccent
-            status={ollamaMirror?.tradeId?(lang==='pt'?'OANDA • operação confirmada':'OANDA • broker-confirmed position'):(lang==='pt'?'OANDA PRACTICE • esperando sinal':'OANDA PRACTICE • waiting for signal')}
-            stats={undefined}
-            lang={lang}
-            researchOnly
-          />
+          <div className="strategy-score-card ollama-strategy-card">
+            <div className="strategy-score-head"><b>OLLAMA • OANDA PRACTICE</b><span>{ollamaMirror?.status??'WAITING'}</span></div>
+            <div className="shadow-grid">
+              <div><small>{lang==='pt'?'LUCRO CONFIRMADO':'CONFIRMED P/L'}</small><strong>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</strong></div>
+              <div><small>TRADE ID</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
+            </div>
+            <p>{lang==='pt'?'Resultados exclusivos da OANDA Practice, sem saldo virtual.':'OANDA Practice confirmed trades only, no virtual balance.'}</p>
+          </div>
         </div>
       </section>
 
