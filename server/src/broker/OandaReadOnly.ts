@@ -124,6 +124,27 @@ export class OandaReadOnly{
   }
  }
 
+ // Broker-authoritative, read-only snapshot. Never substitutes simulated P/L.
+ async authoritativeSnapshot(){
+  const [summary,trades]=await Promise.all([
+   this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/summary`),
+   this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`)
+  ])
+  const a=summary.account
+  if(!a)throw new Error('OANDA account summary unavailable')
+  return{
+   source:'OANDA_API' as const,
+   retrievedAt:new Date().toISOString(),
+   accountId:String(a.id||env.OANDA_ACCOUNT_ID),
+   balance:String(a.balance),
+   equity:new Decimal(a.balance).plus(a.unrealizedPL||0).toString(),
+   unrealizedPL:String(a.unrealizedPL||'0'),
+   accountRealizedPL:String(a.pl||'0'),
+   marginUsed:String(a.marginUsed||'0'),
+   marginAvailable:String(a.marginAvailable||'0'),
+   openTrades:Array.isArray(trades.trades)?trades.trades:[]
+  }
+ }
  async candles(symbol:string,granularity:'M1'|'M5'|'M10'|'M15'|'D'|'W',count=60){
   const b=await this.get(`/v3/instruments/${encodeURIComponent(symbol)}/candles?price=M&granularity=${granularity}&count=${count}`)
   return (b.candles||[]).filter((c:any)=>c.complete&&c.mid).map((c:any)=>({
