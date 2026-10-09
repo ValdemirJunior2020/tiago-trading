@@ -49,7 +49,7 @@ describe('OANDA read-only outcome attribution',()=>{
   expect(s.unattributedBrokerTrades).toBe(1)
   expect(s.examples[0].tradeId).toBe('6')
   expect(candleTimes).toContain('2026-10-08T12:00:00.000Z')
-  expect(candleTimes).toContain('2026-10-09T12:00:00.000Z')
+  expect(candleTimes.every(t=>t==='2026-10-08T12:00:00.000Z')).toBe(true)
   expect(s.chartCoverage).toBe(1)
   expect(chartCoverage(s.examples[0].charts)).toBe(6)
   expect(s.examples[0].charts?.windows.map(w=>w.timeframe)).toEqual(['M1','M5','M10','M15','H1'])
