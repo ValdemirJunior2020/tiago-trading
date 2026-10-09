@@ -39,13 +39,15 @@ export class ShadowMemory{
  private lessons:ShadowLesson[]=[]
  private status:MemoryStatus={source:'SHADOW_CLOSED_TRADES',total:0,losses:0,wins:0,lastSync:null,openViking:'OFFLINE',synced:0,lastError:null}
  private readonly tradeFile:string
+ private readonly fallbackTradeFile:string|null
  private readonly dataFile:string
  private readonly logFile:string
  private readonly endpoint:string
  private readonly fetcher:typeof fetch
  private readonly already=new Set<string>()
  constructor(opts:Opts={}){
-  this.tradeFile=opts.tradeFile||resolve(root,'logs/shadow-paper/trades.jsonl')
+  this.tradeFile=opts.tradeFile||resolve(root,'logs/history/shadow-paper-trades.jsonl')
+  this.fallbackTradeFile=opts.tradeFile?null:resolve(root,'logs/shadow-paper/trades.jsonl')
   this.dataFile=opts.dataFile||resolve(root,'data/ollama-shadow-memory-state.json')
   this.logFile=opts.logFile||resolve(root,'logs/ollama-memory/events.jsonl')
   this.endpoint=(opts.endpoint||'http://127.0.0.1:1933').replace(/\/$/,'')
@@ -59,8 +61,9 @@ export class ShadowMemory{
   appendFileSync(this.logFile,JSON.stringify({at:new Date().toISOString(),event,...extra})+'\n')
  }
  async sync(){
-  if(!existsSync(this.tradeFile)){this.status.lastSync=new Date().toISOString();return this.snapshot()}
-  const next=parseShadowLessons(readFileSync(this.tradeFile,'utf8'))
+  const file=existsSync(this.tradeFile)?this.tradeFile:(this.fallbackTradeFile&&existsSync(this.fallbackTradeFile)?this.fallbackTradeFile:null)
+  if(!file){this.status.lastSync=new Date().toISOString();return this.snapshot()}
+  const next=parseShadowLessons(readFileSync(file,'utf8'))
   this.lessons=next
   this.status={...this.status,total:next.length,losses:next.filter(x=>x.pnl<0).length,wins:next.filter(x=>x.pnl>0).length,lastSync:new Date().toISOString()}
   this.log('SHADOW_MEMORY_SCANNED',{total:next.length,losses:this.status.losses})
