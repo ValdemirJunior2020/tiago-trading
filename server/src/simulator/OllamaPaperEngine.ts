@@ -24,11 +24,13 @@ const PAPER_SLIPPAGE_PIPS_PER_SIDE=0.2
 const PIP_USD_MAJORS='0.0001'
 const PAIRS=['EUR_USD','GBP_USD']
 type Action='LONG'|'SHORT'|'WAIT'|'CLOSE'
+export type BrokerSignal={key:string;action:'OPEN';symbol:'EUR_USD'|'GBP_USD';direction:Direction;
+ entry:string;stop:string;target:string;units:string;at:string;candleTime:string;confidence:number}
 export type AiDecision={decision:Action;confidence:number;reason:string}
 type Position={symbol:string;direction:Direction;entry:string;units:string;stop:string;target:string;initialRisk:string;openedAt:string;breakEven:boolean;slippagePipsPerSide?:number}
 type Stats={trades:number;wins:number;losses:number;grossProfit:string;grossLoss:string;netProfit:string;peakNetProfit:string;maxDrawdown:string;lastPnl:string;lastClosedAt:string|null}
 type Feed={at:string;event:string;symbol?:string;decision?:string;reason?:string;pnl?:string;confidence?:number}
-type LabState={version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null;lastSetup?:SetupReview|null;pendingWaitObservations?:WaitObservation[];waitOutcomes?:WaitOutcome[];waitObserved?:number;waitReviewed?:number;waitFavorable?:number}
+type LabState={lastBrokerSignal?:BrokerSignal|null;version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null;lastSetup?:SetupReview|null;pendingWaitObservations?:WaitObservation[];waitOutcomes?:WaitOutcome[];waitObserved?:number;waitReviewed?:number;waitFavorable?:number}
 type Market={symbol:string;quote:BrokerQuote;m5:Candle[];m10:Candle[];position:Position|null;balance:string;indicators:MarketFeatures;brokerLessons:ReturnType<OandaOutcomeResearch['lessonsFor']>;setup:SetupReview}
 type ReadBroker=Pick<OandaReadOnly,'quote'|'candles'>
 type Options={baseDir?:string;logDir?:string;decide?:(market:Market)=>Promise<AiDecision>;now?:()=>Date}
@@ -127,7 +129,7 @@ export class OllamaPaperEngine{
  snapshot(){
   const verified=this.research?.completedSince(this.state.startedAt)||[]
   const brokerNet=verified.reduce((sum,t)=>sum+t.realizedPL,0)
-  return{...this.state,brokerLearning:this.research?.snapshot()||null,
+  return{...this.state,lastBrokerSignal:this.state.lastBrokerSignal??null,executionMode:'OANDA_PRACTICE_SIGNALS_ONLY',brokerLearning:this.research?.snapshot()||null,
    waitResearch:{source:'COMPLETED_OANDA_M5_CANDLES',mode:'HYPOTHETICAL_PRICE_MOVEMENT_ONLY',
     observed:this.state.waitObserved??0,reviewed:this.state.waitReviewed??0,favorable:this.state.waitFavorable??0,
     pending:this.state.pendingWaitObservations?.length??0,recent:(this.state.waitOutcomes??[]).slice(0,6),
@@ -140,7 +142,7 @@ export class OllamaPaperEngine{
     ollamaPaper:{source:'PAPER_ONLY',trades:this.state.stats.trades,wins:this.state.stats.wins,losses:this.state.stats.losses,netPL:Number(this.state.stats.netProfit)}
    }}
  }
- start(){this.record('OLLAMA_LAB_READY',{reason:'Independent paper experiment; broker read only'})}
+ start(){this.record('OLLAMA_LAB_READY',{reason:'Ollama independent OANDA Practice signal engine; no virtual orders'})}
  private log(event:string,fields:Record<string,unknown>={},trade=false){
   mkdirSync(this.logDir,{recursive:true})
   const at=this.now().toISOString(),path=resolve(this.logDir,trade?'trades.jsonl':at.slice(0,10)+'.jsonl')
@@ -251,13 +253,33 @@ export class OllamaPaperEngine{
   this.state.opens++
   this.record('OLLAMA_LAB_PAPER_OPEN',{symbol,direction,decision:decision.decision,confidence:decision.confidence,reason:decision.reason,entry:entry.toString(),stop:stop.toString(),target:target.toString(),units:units.toString(),riskCash:units.mul(distance).toString(),spreadPips:Number(new Decimal(q.ask).minus(q.bid).div(PIP_USD_MAJORS)),assumedSlippagePipsPerSide:PAPER_SLIPPAGE_PIPS_PER_SIDE},true)
  }
+ private createBrokerSignal(symbol:string,direction:Direction,q:BrokerQuote,m5:Candle[],decision:AiDecision,candleTime:string):BrokerSignal{
+  const entry=new Decimal(direction==='long'?q.ask:q.bid)
+  const bars=m5.slice(-15)
+  let atr=0
+  for(let i=1;i<bars.length;i++){
+   const c=bars[i],prev=bars[i-1]
+   atr+=Math.max(c.high-c.low,Math.abs(c.high-prev.close),Math.abs(c.low-prev.close))
+  }
+  atr/=Math.max(1,bars.length-1)
+  const distance=Decimal.min(entry.mul(MAX_STOP_PCT),Decimal.max(entry.mul('0.0012'),new Decimal(atr).mul('1.5')))
+  const units=Decimal.min(new Decimal('2.5').div(distance).floor(),new Decimal('10000').div(entry).floor())
+  if(units.lt(1))throw Error('Ollama Practice isolated 1000 USD budget insufficient')
+  const stop=direction==='long'?entry.minus(distance):entry.plus(distance)
+  const target=direction==='long'?entry.plus(distance.mul(2)):entry.minus(distance.mul(2))
+  const at=this.now().toISOString()
+  return{key:symbol+':'+candleTime+':'+direction,action:'OPEN',symbol:symbol as BrokerSignal['symbol'],
+   direction,entry:entry.toString(),stop:stop.toString(),target:target.toString(),units:units.toString(),
+   at,candleTime,confidence:decision.confidence}
+ }
  async process(symbol:string){
   if(this.state.paused||!PAIRS.includes(symbol))return
   try{
    const q=await this.broker.quote(symbol)
    if(!this.validQuote(symbol,q)){this.record('OLLAMA_LAB_SKIP',{symbol,reason:'Stale, malformed or wide-spread quote'});return}
    this.newDay()
-   this.manage(symbol,q)
+   // In OANDA-only mode no paper position is marked, closed or opened.
+   // Existing historical paper state is preserved on disk, never executed retroactively.
    // Research is isolated and read-only: failures never become Shadow decisions.
    if(this.research)void this.research.refresh().catch(()=>{})
    const [m5,m10]=await Promise.all([this.broker.candles(symbol,'M5',40),this.broker.candles(symbol,'M10',25)])
@@ -272,7 +294,7 @@ export class OllamaPaperEngine{
    this.state.lastSetup=setup
    this.state.lastMarket={...indicators,symbol,at:last.time,spreadPips}
    this.state.status='SCANNING';this.save()
-   const d=parseAiLabDecision(await this.decide({symbol,quote:q,m5,m10,position:this.state.position?.symbol===symbol?this.state.position:null,balance:this.state.balance,indicators,brokerLessons:this.research?.lessonsFor(symbol)||[],setup}))
+   const d=parseAiLabDecision(await this.decide({symbol,quote:q,m5,m10,position:null,balance:'1000',indicators,brokerLessons:this.research?.lessonsFor(symbol)||[],setup}))
    this.state.decisions++;this.state.lastReviewedAt=this.now().toISOString()
    this.state.lastDecision={...d,symbol,at:this.state.lastReviewedAt}
    this.state.status='READY'
@@ -288,13 +310,15 @@ export class OllamaPaperEngine{
    }
    if(d.confidence<MIN_CONFIDENCE){if(d.decision!=='WAIT')this.record('OLLAMA_LAB_SIGNAL_SKIPPED',{symbol,reason:'Confidence below 0.75'});return}
    if(d.decision==='CLOSE'){
-    const p=this.state.position
-    if(p?.symbol===symbol)this.close(this.paperExit(p,q),'OLLAMA_INDEPENDENT_CLOSE')
+    this.record('OLLAMA_OANDA_CLOSE_NOT_SENT',{symbol,reason:'No broker-owned position supplied to the AI; OANDA attached stop and target govern exit'})
     return
    }
    if(d.decision==='LONG'||d.decision==='SHORT'){
+    const signal=this.createBrokerSignal(symbol,d.decision==='LONG'?'long':'short',q,m5,d,last.time)
+    this.state.lastBrokerSignal=signal
     this.state.signals++
-    this.open(symbol,d.decision==='LONG'?'long':'short',q,m5,d)
+    this.record('OLLAMA_OANDA_SIGNAL',{symbol,decision:d.decision,confidence:d.confidence,
+     reason:'Broker intent saved for separate OANDA Practice execution. No virtual fill.',signalKey:signal.key},true)
    }
   }catch(e){
    this.state.errors++;this.state.status='ERROR'

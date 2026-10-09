@@ -4,8 +4,8 @@ import {env} from '../config.js'
 import {OandaReadOnly} from './OandaReadOnly.js'
 
 export const OLLAMA_TRADE_TAG='TIAGO_OLLAMA'
-export type TaggedTrade={id:string;instrument:string;state:string;currentUnits:string;initialUnits?:string;realizedPL?:string;price?:string;stopLossOrder?:{price?:string};clientExtensions?:{id?:string;tag?:string}}
-export type OpenSpec={symbol:'EUR_USD'|'GBP_USD';direction:'long'|'short';units:string;hardStop:string;clientId:string;referencePrice:string}
+export type TaggedTrade={id:string;instrument:string;state:string;currentUnits:string;initialUnits?:string;realizedPL?:string;unrealizedPL?:string;price?:string;stopLossOrder?:{price?:string};clientExtensions?:{id?:string;tag?:string}}
+export type OpenSpec={symbol:'EUR_USD'|'GBP_USD';direction:'long'|'short';units:string;hardStop:string;target?:string;clientId:string;referencePrice:string}
 const practice='https://api-fxpractice.oanda.com'
 function requirePractice(){
  if(env.OANDA_REST_BASE_URL.replace(/\/$/,'')!==practice)throw Error('OLLAMA_PRACTICE_ONLY: live or nonstandard broker URL refused')
@@ -71,6 +71,10 @@ export class OllamaPracticeBroker{
   if(spread.lte(0)||spread.gt(3))throw Error('SPREAD_TOO_WIDE_FOR_OLLAMA')
   const dist=spec.direction==='long'?price.minus(stop):stop.minus(price)
   if(dist.lte(0)||dist.div(price).gt('0.008'))throw Error('OLLAMA_STOP_INVALID_OR_TOO_WIDE')
+  if(spec.target){
+   const target=new Decimal(spec.target)
+   if(!target.isFinite()||(spec.direction==='long'?target.lte(price):target.gte(price)))throw Error('OLLAMA_TARGET_INVALID')
+  }
   // Fixed isolated $1,000 lab budget: max $2.50 initial stop risk and 10x notional.
   const risk=dist.mul(units)
   if(risk.gt('2.5')||units.mul(price).gt('10000'))throw Error('OLLAMA_PRACTICE_BUDGET_EXCEEDED')
@@ -83,6 +87,7 @@ export class OllamaPracticeBroker{
  async open(spec:OpenSpec){
   requirePractice()
   const normalizedStop=await this.readOnly.formatPrice(spec.symbol,spec.hardStop)
+  const normalizedTarget=spec.target?await this.readOnly.formatPrice(spec.symbol,spec.target):null
   const quantity=new Decimal(spec.units).abs()
   const sign=spec.direction==='long'?quantity:quantity.neg()
   const ref=new Decimal(spec.referencePrice),limit=ref.mul('0.001')
@@ -91,6 +96,7 @@ export class OllamaPracticeBroker{
    order:{type:'MARKET',instrument:spec.symbol,units:sign.toFixed(0),timeInForce:'FOK',positionFill:'OPEN_ONLY',
     priceBound:await this.readOnly.formatPrice(spec.symbol,priceBound.toString()),
     stopLossOnFill:{price:normalizedStop,timeInForce:'GTC'},
+    ...(normalizedTarget?{takeProfitOnFill:{price:normalizedTarget,timeInForce:'GTC'}}:{}),
     clientExtensions:{id:spec.clientId+'_order',tag:OLLAMA_TRADE_TAG,comment:'Tiago independent Ollama Practice only'},
     tradeClientExtensions:{id:spec.clientId,tag:OLLAMA_TRADE_TAG,comment:'Tiago Ollama AI Lab isolated mirror'}
    }
