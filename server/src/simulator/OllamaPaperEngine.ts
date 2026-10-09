@@ -129,7 +129,7 @@ export class OllamaPaperEngine{
  snapshot(){
   const verified=this.research?.completedSince(this.state.startedAt)||[]
   const brokerNet=verified.reduce((sum,t)=>sum+t.realizedPL,0)
-  return{...this.state,executionMode:'OANDA_PRACTICE_SIGNALS_ONLY',brokerLearning:this.research?.snapshot()||null,
+  return{...this.state,lastBrokerSignal:this.state.lastBrokerSignal??null,executionMode:'OANDA_PRACTICE_SIGNALS_ONLY',brokerLearning:this.research?.snapshot()||null,
    waitResearch:{source:'COMPLETED_OANDA_M5_CANDLES',mode:'HYPOTHETICAL_PRICE_MOVEMENT_ONLY',
     observed:this.state.waitObserved??0,reviewed:this.state.waitReviewed??0,favorable:this.state.waitFavorable??0,
     pending:this.state.pendingWaitObservations?.length??0,recent:(this.state.waitOutcomes??[]).slice(0,6),
