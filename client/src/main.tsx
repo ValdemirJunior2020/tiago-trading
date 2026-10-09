@@ -429,6 +429,31 @@ function App(){
           <span>{lang==='pt'?'Motor:':'Engine:'} {sim?.ollamaPaperExperiment?.status??'WAITING'}</span>
           <span>{lang==='pt'?'Última análise:':'Last analysis:'} {sim?.ollamaPaperExperiment?.lastReviewedAt?new Date(sim.ollamaPaperExperiment.lastReviewedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):(lang==='pt'?'aguardando':'waiting')}</span>
         </div>
+        <div className="ollama-diagnostics">
+          <div className="ollama-research-card">
+            <small>{lang==='pt'?'SETUP OBJETIVO · CANDLES OANDA':'OBJECTIVE SETUP · OANDA CANDLES'}</small>
+            <b>{sim?.ollamaPaperExperiment?.lastSetup?.direction==='NONE'?(lang==='pt'?'SEM CONFIRMAÇÃO':'NO CONFIRMED SETUP'):(sim?.ollamaPaperExperiment?.lastSetup?.direction??'WAITING')}</b>
+            <div className="ollama-research-values">
+              <span>{lang==='pt'?'CRITÉRIOS':'CHECKS'} <strong>{sim?.ollamaPaperExperiment?.lastSetup?.score??0} / 5</strong></span>
+              <span>RSI <strong>{sim?.ollamaPaperExperiment?.lastSetup?.rsiZone??'—'}</strong></span>
+            </div>
+            <p>{sim?.ollamaPaperExperiment?.lastSetup?.missing?.length
+              ?(lang==='pt'?'Confirmações faltando: ':'Missing confirmations: ')+sim.ollamaPaperExperiment.lastSetup.missing.join(' · ')
+              :(lang==='pt'?'Avaliando novos candles fechados da OANDA.':'Evaluating new completed OANDA candles.')}</p>
+            <p>{lang==='pt'?'O scanner é independente: não envia ordens nem modifica Shadow 3/4.':'Independent scanner: it never submits orders or modifies Shadow 3/4.'}</p>
+          </div>
+          <div className="ollama-research-card">
+            <small>{lang==='pt'?'WAITs INVESTIGADOS · 3 CANDLES':'WAIT REVIEWS · NEXT 3 CANDLES'}</small>
+            <b>{sim?.ollamaPaperExperiment?.waitResearch?.reviewed??0} {lang==='pt'?'revisados':'reviewed'}</b>
+            <div className="ollama-research-values">
+              <span>{lang==='pt'?'SETUPS EM WAIT':'SETUPS WITH WAIT'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.observed??0}</strong></span>
+              <span>{lang==='pt'?'MOVIMENTO FAVORÁVEL':'FAVORABLE MOVEMENT'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.favorable??0}</strong></span>
+              <span>{lang==='pt'?'EM AVALIAÇÃO':'PENDING'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.pending??0}</strong></span>
+              <span>{lang==='pt'?'ÚLTIMO RESULTADO':'LATEST REVIEW'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.recent?.[0]?.netMovementPips!=null?sim.ollamaPaperExperiment.waitResearch.recent[0].netMovementPips+' pips':'—'}</strong></span>
+            </div>
+            <p>{lang==='pt'?'Mede movimento hipotético após WAIT descontando spread e slippage. Não são trades nem lucro realizado.':'Hypothetical movement after WAIT minus estimated spread/slippage. Not executed trades or realized profit.'}</p>
+          </div>
+        </div>
         <div className="ollama-research-grid">
           <div className="ollama-research-card">
             <small>{lang==='pt'?'CONDIÇÕES DE MERCADO · OANDA':'MARKET CONDITIONS · OANDA'}</small>

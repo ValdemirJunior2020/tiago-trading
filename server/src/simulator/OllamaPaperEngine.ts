@@ -7,6 +7,8 @@ import type {BrokerQuote,Direction} from '../types.js'
 import type {Candle} from '../indicators.js'
 import {featuresFromCandles,OandaOutcomeResearch} from './OandaOutcomeResearch.js'
 import type {MarketFeatures} from './OandaOutcomeResearch.js'
+import {scanOllamaSetups,resolveWaitObservation,questionableRsiReason} from './OllamaSignalReview.js'
+import type {SetupReview,WaitObservation,WaitOutcome} from './OllamaSignalReview.js'
 import type {OandaReadOnly} from '../broker/OandaReadOnly.js'
 
 export const OLLAMA_LAB_VERSION='ollama-independent-paper-v1'
@@ -14,6 +16,7 @@ const INITIAL_BALANCE='1000'
 const RISK_PCT=new Decimal('0.0025')
 const MAX_DAILY_LOSS=new Decimal('0.03')
 const MAX_SPREAD_PCT=new Decimal('0.0015')
+const MAX_SPREAD_PIPS=3 // Independent paper only; no change to Shadow or broker orders.
 const MAX_STOP_PCT=new Decimal('0.008')
 const MIN_CONFIDENCE=0.75
 // Conservative execution assumption on top of actual OANDA bid/ask spreads.
@@ -25,13 +28,13 @@ export type AiDecision={decision:Action;confidence:number;reason:string}
 type Position={symbol:string;direction:Direction;entry:string;units:string;stop:string;target:string;initialRisk:string;openedAt:string;breakEven:boolean;slippagePipsPerSide?:number}
 type Stats={trades:number;wins:number;losses:number;grossProfit:string;grossLoss:string;netProfit:string;peakNetProfit:string;maxDrawdown:string;lastPnl:string;lastClosedAt:string|null}
 type Feed={at:string;event:string;symbol?:string;decision?:string;reason?:string;pnl?:string;confidence?:number}
-type LabState={version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null}
-type Market={symbol:string;quote:BrokerQuote;m5:Candle[];m10:Candle[];position:Position|null;balance:string;indicators:MarketFeatures;brokerLessons:ReturnType<OandaOutcomeResearch['lessonsFor']>}
+type LabState={version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null;lastSetup?:SetupReview|null;pendingWaitObservations?:WaitObservation[];waitOutcomes?:WaitOutcome[];waitObserved?:number;waitReviewed?:number;waitFavorable?:number}
+type Market={symbol:string;quote:BrokerQuote;m5:Candle[];m10:Candle[];position:Position|null;balance:string;indicators:MarketFeatures;brokerLessons:ReturnType<OandaOutcomeResearch['lessonsFor']>;setup:SetupReview}
 type ReadBroker=Pick<OandaReadOnly,'quote'|'candles'>
 type Options={baseDir?:string;logDir?:string;decide?:(market:Market)=>Promise<AiDecision>;now?:()=>Date}
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../../')
 const emptyStats=():Stats=>({trades:0,wins:0,losses:0,grossProfit:'0',grossLoss:'0',netProfit:'0',peakNetProfit:'0',maxDrawdown:'0',lastPnl:'0',lastClosedAt:null})
-function initial(now:Date):LabState{return{version:OLLAMA_LAB_VERSION,startedAt:now.toISOString(),startingBalance:INITIAL_BALANCE,balance:INITIAL_BALANCE,realizedPL:'0',openPnl:'0',equity:INITIAL_BALANCE,position:null,lastCandle:{},decisions:0,signals:0,opens:0,closes:0,vetoed:0,errors:0,lastReviewedAt:null,lastDecision:null,lastAction:null,events:[],stats:emptyStats(),day:now.toISOString().slice(0,10),dayStartingEquity:INITIAL_BALANCE,paused:false,status:'WAITING'}}
+function initial(now:Date):LabState{return{version:OLLAMA_LAB_VERSION,startedAt:now.toISOString(),startingBalance:INITIAL_BALANCE,balance:INITIAL_BALANCE,realizedPL:'0',openPnl:'0',equity:INITIAL_BALANCE,position:null,lastCandle:{},decisions:0,signals:0,opens:0,closes:0,vetoed:0,errors:0,lastReviewedAt:null,lastDecision:null,lastAction:null,events:[],stats:emptyStats(),day:now.toISOString().slice(0,10),dayStartingEquity:INITIAL_BALANCE,paused:false,status:'WAITING',lastSetup:null,pendingWaitObservations:[],waitOutcomes:[],waitObserved:0,waitReviewed:0,waitFavorable:0}}
 export function parseAiLabDecision(raw:unknown):AiDecision{
  if(!raw||typeof raw!=='object')throw new Error('AI returned no JSON object')
  const d=raw as Record<string,unknown>
@@ -45,20 +48,30 @@ export function parseAiLabDecision(raw:unknown):AiDecision{
 export async function queryIndependentOllama(market:Market):Promise<AiDecision>{
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000)
  try{
-  const response=await fetch(env.OLLAMA_BASE_URL+'/api/chat',{
-   method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({
-    model:env.OLLAMA_MODEL,stream:false,think:false,format:'json',
-    options:{temperature:0,num_predict:200},
-    messages:[
-     {role:'system',content:'You are an independent FOREX paper-trading research agent. Study completed OANDA M5/M10 candles, calculated RSI14, Bollinger 20/2, volume ratio and macro SMA20, real bid/ask spread, current virtual position and any verified OANDA Shadow mirror outcomes. Treat small broker samples as uncertain observations, not winning rules. Return ONLY JSON {"decision":"BUY|SELL|WAIT|CLOSE","confidence":0.0,"reason":"short explanation using indicators and uncertainty"}. Prefer WAIT without clear evidence. CLOSE only for existing virtual position. Never claim future certainty, set leverage or risk, submit orders or change Shadow. You are an independent PAPER-ONLY research agent; mathematical controls overrule you.'},
-     {role:'user',content:JSON.stringify({symbol:market.symbol,quote:market.quote,position:market.position,balance:market.balance,m5:market.m5.slice(-25),m10:market.m10.slice(-20),indicators:market.indicators,verifiedShadowBrokerExamples:market.brokerLessons,historyPolicy:'Only broker-confirmed attributed examples; missing samples do not imply profitable history.'})}
-    ]
+  const system='You are an independent OANDA FOREX PAPER research agent. Every response must consider both BUY and SELL hypotheses (including a trend continuation while Bollinger is inside) and a WAIT option. Distinguish no fully confirmed setup from a possible directional hypothesis. Calculate from supplied completed candles and objective setup checks, not imagination. RSI below 30 = OVERSOLD, above 70 = OVERBOUGHT, 30 through 70 = NEUTRAL; RSI 35 is NOT oversold. Low tick volume alone or no confirmed Shadow trade sample does NOT automatically forbid a signal. A verified Shadow outcome sample below 20 trades is observational, never a predictive rule. Answer JSON ONLY {"decision":"BUY|SELL|WAIT|CLOSE","confidence":0.0,"reason":"specific price and indicator evidence plus uncertainty"}; confidence is your assessment, not calibrated win probability. Prefer WAIT if neither direction has convincing evidence. CLOSE only if own paper position exists. No live orders, no OANDA writes, no Shadow modifications or risk rule changes.'
+  const base={symbol:market.symbol,quote:market.quote,position:market.position,balance:market.balance,
+   m5:market.m5.slice(-25),m10:market.m10.slice(-20),indicators:market.indicators,
+   objectivePaperSetup:market.setup,verifiedShadowBrokerExamples:market.brokerLessons,
+   brokerHistoryNote:'Historical broker sample is optional context; do not default to WAIT just because confirmed broker outcomes are few.'}
+  for(let attempt=0;attempt<2;attempt++){
+   const response=await fetch(env.OLLAMA_BASE_URL+'/api/chat',{
+    method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+     model:env.OLLAMA_MODEL,stream:false,think:false,format:'json',
+     options:{temperature:0,num_predict:240},
+     messages:[
+      {role:'system',content:system},
+      {role:'user',content:JSON.stringify({...base,
+       ...(attempt?{criticalCorrection:'Your last explanation mislabeled RSI. Use the exact supplied rsiZone and decide again.'}:{})})}
+     ]
+    })
    })
-  })
-  if(!response.ok)throw new Error('Ollama HTTP '+response.status)
-  const body=await response.json() as {message?:{content?:string}}
-  return parseAiLabDecision(JSON.parse(body.message?.content||'{}'))
+   if(!response.ok)throw new Error('Ollama HTTP '+response.status)
+   const body=await response.json() as {message?:{content?:string}}
+   const decision=parseAiLabDecision(JSON.parse(body.message?.content||'{}'))
+   if(!questionableRsiReason(decision.reason,market.setup.rsiZone))return decision
+  }
+  return{decision:'WAIT',confidence:0,reason:'RSI classification remained inconsistent after recheck; independent paper entry withheld.'}
  }finally{clearTimeout(timer)}
 }
 export class OllamaPaperEngine{
@@ -80,7 +93,10 @@ export class OllamaPaperEngine{
    try{
     const saved=JSON.parse(readFileSync(this.stateFile,'utf8')) as LabState
     if(saved.version!==OLLAMA_LAB_VERSION||!saved.stats||!saved.lastCandle||!saved.balance||!Array.isArray(saved.events))throw new Error('Incompatible AI lab state')
-    this.state={...this.state,...saved,status:'WAITING'}
+    this.state={...this.state,...saved,status:'WAITING',lastSetup:saved.lastSetup??null,
+     pendingWaitObservations:Array.isArray(saved.pendingWaitObservations)?saved.pendingWaitObservations:[],
+     waitOutcomes:Array.isArray(saved.waitOutcomes)?saved.waitOutcomes:[],
+     waitObserved:saved.waitObserved??0,waitReviewed:saved.waitReviewed??0,waitFavorable:saved.waitFavorable??0}
    }catch(e){
     this.state.paused=true;this.state.status='PAUSED'
     this.log('OLLAMA_LAB_STATE_ERROR',{reason:String(e),note:'Existing data preserved, lab paused'})
@@ -91,6 +107,10 @@ export class OllamaPaperEngine{
   const verified=this.research?.completedSince(this.state.startedAt)||[]
   const brokerNet=verified.reduce((sum,t)=>sum+t.realizedPL,0)
   return{...this.state,brokerLearning:this.research?.snapshot()||null,
+   waitResearch:{source:'COMPLETED_OANDA_M5_CANDLES',mode:'HYPOTHETICAL_PRICE_MOVEMENT_ONLY',
+    observed:this.state.waitObserved??0,reviewed:this.state.waitReviewed??0,favorable:this.state.waitFavorable??0,
+    pending:this.state.pendingWaitObservations?.length??0,recent:(this.state.waitOutcomes??[]).slice(0,6),
+    assumptions:'3 completed M5 candles, midpoint close-to-close; spread and 0.2 pip/side simulated slippage deducted. Not executed trades, forecast or profit.'},
    executionCosts:{spread:'OANDA_BID_ASK',assumedSlippagePipsPerSide:PAPER_SLIPPAGE_PIPS_PER_SIDE,
     financing:'NOT_MODELED',commission:'NOT_MODELED',basis:'Forward paper fills only; old positions retain their original model'},
    comparison:{periodStart:this.state.startedAt,periodEnd:this.now().toISOString(),
@@ -158,9 +178,25 @@ export class OllamaPaperEngine{
   const target=p.direction==='long'?new Decimal(exit).gte(p.target):new Decimal(exit).lte(p.target)
   if(stopped||target)this.close(exit,stopped?'VIRTUAL_STOP_OR_BREAK_EVEN':'VIRTUAL_TARGET_2R')
  }
+ private reviewWaits(symbol:string,m5:Candle[]){
+  const pending=this.state.pendingWaitObservations??[],remaining:WaitObservation[]=[]
+  for(const watch of pending){
+   if(watch.symbol!==symbol){remaining.push(watch);continue}
+   const result=resolveWaitObservation(watch,m5,PAPER_SLIPPAGE_PIPS_PER_SIDE)
+   if(result){
+    this.state.waitReviewed=(this.state.waitReviewed??0)+1
+    if(result.favorable)this.state.waitFavorable=(this.state.waitFavorable??0)+1
+    this.state.waitOutcomes=[result,...(this.state.waitOutcomes??[])].slice(0,20)
+    this.record('OLLAMA_LAB_WAIT_REVIEW',{symbol,decision:watch.direction,
+     reason:'After three completed M5 candles, hypothetical net movement '+result.netMovementPips+' pips (NOT an executed trade)'})
+   }else if(m5.some(c=>c.time===watch.candleTime))remaining.push(watch)
+   // Expired observations cannot be evaluated without full future data; never invent a return.
+  }
+  this.state.pendingWaitObservations=remaining
+ }
  private validQuote(symbol:string,q:BrokerQuote){
   const bid=Number(q.bid),ask=Number(q.ask),qt=Date.parse(q.timestamp)
-  return q.symbol===symbol&&Number.isFinite(qt)&&Math.abs(this.now().getTime()-qt)<=120000&&Number.isFinite(bid)&&Number.isFinite(ask)&&bid>0&&ask>bid&&(ask-bid)/bid<=MAX_SPREAD_PCT.toNumber()
+  return q.symbol===symbol&&Number.isFinite(qt)&&Math.abs(this.now().getTime()-qt)<=120000&&Number.isFinite(bid)&&Number.isFinite(ask)&&bid>0&&ask>bid&&(ask-bid)/bid<=MAX_SPREAD_PCT.toNumber()&&(ask-bid)/0.0001<=MAX_SPREAD_PIPS
  }
  private newDay(){
   const today=this.now().toISOString().slice(0,10)
@@ -208,15 +244,27 @@ export class OllamaPaperEngine{
    if(!last||m5.length<25||m10.length<20){this.record('OLLAMA_LAB_SKIP',{symbol,reason:'Insufficient completed candles'});return}
    if(this.state.lastCandle[symbol]===last.time){this.save();return}
    this.state.lastCandle[symbol]=last.time
+   this.reviewWaits(symbol,m5)
    const indicators=featuresFromCandles(m5,m10)
-   this.state.lastMarket={...indicators,symbol,at:last.time,
-    spreadPips:Number(new Decimal(q.ask).minus(q.bid).div(PIP_USD_MAJORS).toFixed(2))}
+   const spreadPips=Number(new Decimal(q.ask).minus(q.bid).div(PIP_USD_MAJORS).toFixed(2))
+   const setup=scanOllamaSetups(m5,m10,spreadPips)
+   this.state.lastSetup=setup
+   this.state.lastMarket={...indicators,symbol,at:last.time,spreadPips}
    this.state.status='SCANNING';this.save()
-   const d=parseAiLabDecision(await this.decide({symbol,quote:q,m5,m10,position:this.state.position?.symbol===symbol?this.state.position:null,balance:this.state.balance,indicators,brokerLessons:this.research?.lessonsFor(symbol)||[]}))
+   const d=parseAiLabDecision(await this.decide({symbol,quote:q,m5,m10,position:this.state.position?.symbol===symbol?this.state.position:null,balance:this.state.balance,indicators,brokerLessons:this.research?.lessonsFor(symbol)||[],setup}))
    this.state.decisions++;this.state.lastReviewedAt=this.now().toISOString()
    this.state.lastDecision={...d,symbol,at:this.state.lastReviewedAt}
    this.state.status='READY'
-   this.record('OLLAMA_LAB_DECISION',{symbol,candleTime:last.time,decision:d.decision,confidence:d.confidence,reason:d.reason})
+   this.record('OLLAMA_LAB_DECISION',{symbol,candleTime:last.time,decision:d.decision,confidence:d.confidence,
+    reason:d.reason,setupDirection:setup.direction,setupScore:setup.score,rsiZone:setup.rsiZone})
+   if(d.decision==='WAIT'&&setup.qualified&&!this.state.position){
+    const watch:WaitObservation={symbol,direction:setup.direction as 'BUY'|'SELL',candleTime:last.time,
+     entryMid:last.close,spreadPips,horizonCandles:3}
+    this.state.pendingWaitObservations=[...(this.state.pendingWaitObservations??[]),watch].slice(-24)
+    this.state.waitObserved=(this.state.waitObserved??0)+1
+    this.record('OLLAMA_LAB_WAIT_WATCH',{symbol,decision:watch.direction,
+     reason:'Objective 5/5 setup went to WAIT; evaluating next three closed M5 candles without trading'})
+   }
    if(d.confidence<MIN_CONFIDENCE){if(d.decision!=='WAIT')this.record('OLLAMA_LAB_SIGNAL_SKIPPED',{symbol,reason:'Confidence below 0.75'});return}
    if(d.decision==='CLOSE'){
     const p=this.state.position
