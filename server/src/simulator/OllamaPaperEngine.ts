@@ -5,6 +5,8 @@ import {fileURLToPath} from 'node:url'
 import {env} from '../config.js'
 import type {BrokerQuote,Direction} from '../types.js'
 import type {Candle} from '../indicators.js'
+import {featuresFromCandles,OandaOutcomeResearch} from './OandaOutcomeResearch.js'
+import type {MarketFeatures} from './OandaOutcomeResearch.js'
 import type {OandaReadOnly} from '../broker/OandaReadOnly.js'
 
 export const OLLAMA_LAB_VERSION='ollama-independent-paper-v1'
@@ -14,14 +16,17 @@ const MAX_DAILY_LOSS=new Decimal('0.03')
 const MAX_SPREAD_PCT=new Decimal('0.0015')
 const MAX_STOP_PCT=new Decimal('0.008')
 const MIN_CONFIDENCE=0.75
+// Conservative execution assumption on top of actual OANDA bid/ask spreads.
+const PAPER_SLIPPAGE_PIPS_PER_SIDE=0.2
+const PIP_USD_MAJORS='0.0001'
 const PAIRS=['EUR_USD','GBP_USD']
 type Action='LONG'|'SHORT'|'WAIT'|'CLOSE'
 export type AiDecision={decision:Action;confidence:number;reason:string}
-type Position={symbol:string;direction:Direction;entry:string;units:string;stop:string;target:string;initialRisk:string;openedAt:string;breakEven:boolean}
+type Position={symbol:string;direction:Direction;entry:string;units:string;stop:string;target:string;initialRisk:string;openedAt:string;breakEven:boolean;slippagePipsPerSide?:number}
 type Stats={trades:number;wins:number;losses:number;grossProfit:string;grossLoss:string;netProfit:string;peakNetProfit:string;maxDrawdown:string;lastPnl:string;lastClosedAt:string|null}
 type Feed={at:string;event:string;symbol?:string;decision?:string;reason?:string;pnl?:string;confidence?:number}
-type LabState={version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED'}
-type Market={symbol:string;quote:BrokerQuote;m5:Candle[];m10:Candle[];position:Position|null;balance:string}
+type LabState={version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null}
+type Market={symbol:string;quote:BrokerQuote;m5:Candle[];m10:Candle[];position:Position|null;balance:string;indicators:MarketFeatures;brokerLessons:ReturnType<OandaOutcomeResearch['lessonsFor']>}
 type ReadBroker=Pick<OandaReadOnly,'quote'|'candles'>
 type Options={baseDir?:string;logDir?:string;decide?:(market:Market)=>Promise<AiDecision>;now?:()=>Date}
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../../../')
@@ -30,10 +35,12 @@ function initial(now:Date):LabState{return{version:OLLAMA_LAB_VERSION,startedAt:
 export function parseAiLabDecision(raw:unknown):AiDecision{
  if(!raw||typeof raw!=='object')throw new Error('AI returned no JSON object')
  const d=raw as Record<string,unknown>
- if(!['LONG','SHORT','WAIT','CLOSE'].includes(d.decision as string))throw new Error('Invalid model decision')
+ const action=String(d.decision||'').toUpperCase()
+ const mapped=action==='BUY'?'LONG':action==='SELL'?'SHORT':action
+ if(!['LONG','SHORT','WAIT','CLOSE'].includes(mapped))throw new Error('Invalid model decision')
  if(typeof d.confidence!=='number'||!Number.isFinite(d.confidence)||d.confidence<0||d.confidence>1)throw new Error('Invalid model confidence')
  if(typeof d.reason!=='string'||!d.reason.trim()||d.reason.length>450)throw new Error('Invalid model reason')
- return{decision:d.decision as Action,confidence:d.confidence,reason:d.reason.trim()}
+ return{decision:mapped as Action,confidence:d.confidence,reason:d.reason.trim()}
 }
 export async function queryIndependentOllama(market:Market):Promise<AiDecision>{
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000)
@@ -44,8 +51,8 @@ export async function queryIndependentOllama(market:Market):Promise<AiDecision>{
     model:env.OLLAMA_MODEL,stream:false,think:false,format:'json',
     options:{temperature:0,num_predict:200},
     messages:[
-     {role:'system',content:'You are an independent FOREX paper-trading research agent. Assess raw completed M5/M10 price candles, bid/ask spread, and current virtual position. Output ONLY a JSON object: {"decision":"LONG|SHORT|WAIT|CLOSE","confidence":0.0,"reason":"short factual explanation"}. Never pretend to know the future. Prefer WAIT with weak evidence. CLOSE is valid only if there is an existing position for this symbol. Do not infer missing data. You cannot set risk, trade size, real orders, or remove stops. Your decision will be validated by an independent risk engine.'},
-     {role:'user',content:JSON.stringify({symbol:market.symbol,quote:market.quote,position:market.position,balance:market.balance,m5:market.m5.slice(-25),m10:market.m10.slice(-20)})}
+     {role:'system',content:'You are an independent FOREX paper-trading research agent. Study completed OANDA M5/M10 candles, calculated RSI14, Bollinger 20/2, volume ratio and macro SMA20, real bid/ask spread, current virtual position and any verified OANDA Shadow mirror outcomes. Treat small broker samples as uncertain observations, not winning rules. Return ONLY JSON {"decision":"BUY|SELL|WAIT|CLOSE","confidence":0.0,"reason":"short explanation using indicators and uncertainty"}. Prefer WAIT without clear evidence. CLOSE only for existing virtual position. Never claim future certainty, set leverage or risk, submit orders or change Shadow. You are an independent PAPER-ONLY research agent; mathematical controls overrule you.'},
+     {role:'user',content:JSON.stringify({symbol:market.symbol,quote:market.quote,position:market.position,balance:market.balance,m5:market.m5.slice(-25),m10:market.m10.slice(-20),indicators:market.indicators,verifiedShadowBrokerExamples:market.brokerLessons,historyPolicy:'Only broker-confirmed attributed examples; missing samples do not imply profitable history.'})}
     ]
    })
   })
@@ -60,11 +67,14 @@ export class OllamaPaperEngine{
  private readonly logDir:string
  private readonly decide:(market:Market)=>Promise<AiDecision>
  private readonly now:()=>Date
+ private readonly research:OandaOutcomeResearch|null
  constructor(private broker:ReadBroker,opts:Options={}){
   this.now=opts.now||(()=>new Date())
   this.stateFile=resolve(opts.baseDir||resolve(root,'data'),'ollama-paper-state.json')
   this.logDir=resolve(opts.logDir||resolve(root,'logs','ollama-paper'))
   this.decide=opts.decide||queryIndependentOllama
+  this.research=typeof (broker as any).closedTrades==='function'&&typeof (broker as any).candlesBefore==='function'
+    ?new OandaOutcomeResearch(broker as unknown as ConstructorParameters<typeof OandaOutcomeResearch>[0],{now:this.now}):null
   this.state=initial(this.now())
   if(existsSync(this.stateFile)){
    try{
@@ -77,7 +87,18 @@ export class OllamaPaperEngine{
    }
   }
  }
- snapshot(){return this.state}
+ snapshot(){
+  const verified=this.research?.completedSince(this.state.startedAt)||[]
+  const brokerNet=verified.reduce((sum,t)=>sum+t.realizedPL,0)
+  return{...this.state,brokerLearning:this.research?.snapshot()||null,
+   executionCosts:{spread:'OANDA_BID_ASK',assumedSlippagePipsPerSide:PAPER_SLIPPAGE_PIPS_PER_SIDE,
+    financing:'NOT_MODELED',commission:'NOT_MODELED',basis:'Forward paper fills only; old positions retain their original model'},
+   comparison:{periodStart:this.state.startedAt,periodEnd:this.now().toISOString(),
+    note:'Same calendar window, but paper and OANDA use different capital and trade sizes. Not a like-for-like return comparison.',
+    brokerShadow:{source:'OANDA_CONFIRMED_SHADOW_MIRROR',trades:verified.length,wins:verified.filter(t=>t.realizedPL>0).length,losses:verified.filter(t=>t.realizedPL<0).length,netPL:Number(brokerNet.toFixed(2))},
+    ollamaPaper:{source:'PAPER_ONLY',trades:this.state.stats.trades,wins:this.state.stats.wins,losses:this.state.stats.losses,netPL:Number(this.state.stats.netProfit)}
+   }}
+ }
  start(){this.record('OLLAMA_LAB_READY',{reason:'Independent paper experiment; broker read only'})}
  private log(event:string,fields:Record<string,unknown>={},trade=false){
   mkdirSync(this.logDir,{recursive:true})
@@ -99,6 +120,13 @@ export class OllamaPaperEngine{
   this.log(event,fields,trade)
   this.save()
  }
+ private assumedSlip(p:Position|undefined){
+  return new Decimal(PIP_USD_MAJORS).mul(p?.slippagePipsPerSide??0)
+ }
+ private paperExit(p:Position,q:BrokerQuote){
+  const mid=p.direction==='long'?new Decimal(q.bid):new Decimal(q.ask)
+  return(p.direction==='long'?mid.minus(this.assumedSlip(p)):mid.plus(this.assumedSlip(p))).toString()
+ }
  private pnl(p:Position,exit:string){const delta=p.direction==='long'?new Decimal(exit).minus(p.entry):new Decimal(p.entry).minus(exit);return delta.mul(p.units)}
  private close(exit:string,reason:string){
   const p=this.state.position
@@ -118,7 +146,7 @@ export class OllamaPaperEngine{
  private manage(symbol:string,q:BrokerQuote){
   const p=this.state.position
   if(!p||p.symbol!==symbol)return
-  const exit=p.direction==='long'?q.bid:q.ask
+  const exit=this.paperExit(p,q)
   const unrealized=this.pnl(p,exit)
   this.state.openPnl=unrealized.toString()
   this.state.equity=new Decimal(this.state.balance).plus(unrealized).toString()
@@ -144,7 +172,9 @@ export class OllamaPaperEngine{
  }
  private open(symbol:string,direction:Direction,q:BrokerQuote,m5:Candle[],decision:AiDecision){
   if(this.state.position||this.dailyRiskLocked()){this.record('OLLAMA_LAB_SIGNAL_SKIPPED',{symbol,reason:'Position already open or daily drawdown limit'});return}
-  const entry=new Decimal(direction==='long'?q.ask:q.bid)
+  const base=new Decimal(direction==='long'?q.ask:q.bid)
+  const slip=new Decimal(PIP_USD_MAJORS).mul(PAPER_SLIPPAGE_PIPS_PER_SIDE)
+  const entry=direction==='long'?base.plus(slip):base.minus(slip)
   const bars=m5.slice(-15)
   let atr=0
   for(let i=1;i<bars.length;i++){
@@ -160,9 +190,9 @@ export class OllamaPaperEngine{
   const stop=direction==='long'?entry.minus(distance):entry.plus(distance)
   const target=direction==='long'?entry.plus(distance.mul(2)):entry.minus(distance.mul(2))
   const at=this.now().toISOString()
-  this.state.position={symbol,direction,entry:entry.toString(),units:units.toString(),stop:stop.toString(),target:target.toString(),initialRisk:units.mul(distance).toString(),openedAt:at,breakEven:false}
+  this.state.position={symbol,direction,entry:entry.toString(),units:units.toString(),stop:stop.toString(),target:target.toString(),initialRisk:units.mul(distance).toString(),openedAt:at,breakEven:false,slippagePipsPerSide:PAPER_SLIPPAGE_PIPS_PER_SIDE}
   this.state.opens++
-  this.record('OLLAMA_LAB_PAPER_OPEN',{symbol,direction,decision:decision.decision,confidence:decision.confidence,reason:decision.reason,entry:entry.toString(),stop:stop.toString(),target:target.toString(),units:units.toString(),riskCash:units.mul(distance).toString()},true)
+  this.record('OLLAMA_LAB_PAPER_OPEN',{symbol,direction,decision:decision.decision,confidence:decision.confidence,reason:decision.reason,entry:entry.toString(),stop:stop.toString(),target:target.toString(),units:units.toString(),riskCash:units.mul(distance).toString(),spreadPips:Number(new Decimal(q.ask).minus(q.bid).div(PIP_USD_MAJORS)),assumedSlippagePipsPerSide:PAPER_SLIPPAGE_PIPS_PER_SIDE},true)
  }
  async process(symbol:string){
   if(this.state.paused||!PAIRS.includes(symbol))return
@@ -171,13 +201,18 @@ export class OllamaPaperEngine{
    if(!this.validQuote(symbol,q)){this.record('OLLAMA_LAB_SKIP',{symbol,reason:'Stale, malformed or wide-spread quote'});return}
    this.newDay()
    this.manage(symbol,q)
+   // Research is isolated and read-only: failures never become Shadow decisions.
+   if(this.research)await this.research.refresh()
    const [m5,m10]=await Promise.all([this.broker.candles(symbol,'M5',40),this.broker.candles(symbol,'M10',25)])
    const last=m5.at(-1)
    if(!last||m5.length<25||m10.length<20){this.record('OLLAMA_LAB_SKIP',{symbol,reason:'Insufficient completed candles'});return}
    if(this.state.lastCandle[symbol]===last.time){this.save();return}
    this.state.lastCandle[symbol]=last.time
+   const indicators=featuresFromCandles(m5,m10)
+   this.state.lastMarket={...indicators,symbol,at:last.time,
+    spreadPips:Number(new Decimal(q.ask).minus(q.bid).div(PIP_USD_MAJORS).toFixed(2))}
    this.state.status='SCANNING';this.save()
-   const d=parseAiLabDecision(await this.decide({symbol,quote:q,m5,m10,position:this.state.position?.symbol===symbol?this.state.position:null,balance:this.state.balance}))
+   const d=parseAiLabDecision(await this.decide({symbol,quote:q,m5,m10,position:this.state.position?.symbol===symbol?this.state.position:null,balance:this.state.balance,indicators,brokerLessons:this.research?.lessonsFor(symbol)||[]}))
    this.state.decisions++;this.state.lastReviewedAt=this.now().toISOString()
    this.state.lastDecision={...d,symbol,at:this.state.lastReviewedAt}
    this.state.status='READY'
@@ -185,7 +220,7 @@ export class OllamaPaperEngine{
    if(d.confidence<MIN_CONFIDENCE){if(d.decision!=='WAIT')this.record('OLLAMA_LAB_SIGNAL_SKIPPED',{symbol,reason:'Confidence below 0.75'});return}
    if(d.decision==='CLOSE'){
     const p=this.state.position
-    if(p?.symbol===symbol)this.close(p.direction==='long'?q.bid:q.ask,'OLLAMA_INDEPENDENT_CLOSE')
+    if(p?.symbol===symbol)this.close(this.paperExit(p,q),'OLLAMA_INDEPENDENT_CLOSE')
     return
    }
    if(d.decision==='LONG'||d.decision==='SHORT'){
