@@ -307,7 +307,7 @@ h1,h2,p{margin:0}
 
 
 .performance-board{margin-bottom:12px}
-.strategy-score-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:0 20px 20px}
+.strategy-score-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 20px 20px}
 .strategy-score-card{border:1px solid rgba(139,165,204,.12);background:rgba(7,14,24,.52);border-radius:16px;padding:16px;min-width:0}
 .strategy-score-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .strategy-score-head small{display:block;color:#6f839d;font-size:8px;letter-spacing:.1em;margin-bottom:5px}
@@ -325,3 +325,27 @@ h1,h2,p{margin:0}
 .strategy-score-foot{display:flex;justify-content:space-between;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(139,165,204,.08);color:#667b95;font-size:8px}
 .strategy-score-foot span:last-child{text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:980px){.strategy-score-grid{grid-template-columns:1fr}}
+
+
+/* Ollama AI Lab — all activity comes from persisted model decisions, no fake trades. */
+.ollama-lab{border-color:rgba(101,230,255,.18)}
+.ollama-lab-status{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:0 20px 16px;color:#91a9c2;font-size:11px}
+.ollama-lab-status>b{color:#b9efe7}
+.ollama-lab-status>span:not(.pulse-dot):not(.offline-dot){padding:6px 10px;border:1px solid rgba(101,230,255,.10);background:rgba(101,230,255,.03);border-radius:8px}
+.offline-dot{height:7px;width:7px;border-radius:50%;background:#f7a4a4}
+.ollama-lab .shadow-grid strong.profit-up{color:var(--mint)}
+.ollama-lab .shadow-grid strong.profit-down{color:var(--danger)}
+.ollama-lab-decision{margin:0 20px 14px;border:1px solid rgba(101,230,255,.16);background:rgba(101,230,255,.045);padding:15px;border-radius:14px;display:flex;flex-direction:column;gap:6px}
+.ollama-lab-decision small{font-size:9px;letter-spacing:.08em;color:#7694b2}
+.ollama-lab-decision b{font-size:17px;color:#b6fff0}
+.ollama-lab-decision span{font-size:11px;color:#b3c3d6;overflow-wrap:anywhere}
+.ollama-lab-feed{margin:0 20px 20px;border:1px solid rgba(139,165,204,.12);border-radius:14px;background:rgba(5,14,25,.43);overflow:hidden}
+.ollama-lab-feed-title{display:flex;align-items:center;gap:8px;padding:13px 16px;color:#c5f8ef;font-size:10px;font-weight:700;letter-spacing:.08em}
+.ollama-lab-feed-title small{margin-left:auto;color:#758ba4;font-weight:400;letter-spacing:0}
+.ollama-lab-event{display:grid;grid-template-columns:85px 175px minmax(0,1fr);gap:12px;align-items:center;padding:10px 16px;border-top:1px solid rgba(139,165,204,.08);font-size:10px;color:#8da0b8}
+.ollama-lab-event time{font-variant-numeric:tabular-nums;color:#a0b6cb}
+.ollama-lab-event b{color:#c6eaf5}
+.ollama-lab-event span{overflow-wrap:anywhere}
+.ollama-lab-feed p{padding:0 16px 16px;color:#8298b2;font-size:11px}
+@media(max-width:980px){.strategy-score-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.strategy-score-grid{grid-template-columns:1fr}.ollama-lab-event{grid-template-columns:1fr;gap:4px}.ollama-lab-feed-title{flex-wrap:wrap}}
