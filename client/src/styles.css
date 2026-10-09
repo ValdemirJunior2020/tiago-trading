@@ -609,3 +609,10 @@ h1,h2,p{margin:0}
 .ollama-condition-list{margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,102,198,.21);display:flex;flex-wrap:wrap;gap:7px}
 .ollama-condition-list small{width:100%;font-size:11px;color:#f9c5e3;font-weight:750;line-height:1.4}
 .ollama-condition-list span{font-size:12px;line-height:1.4;color:#ffe0f0;padding:6px 9px;border-radius:8px;background:rgba(255,102,198,.10);border:1px solid rgba(255,102,198,.23)}
+
+/* Ollama-only measurable diagnostics: bright pink, readable, no impact on broker panels. */
+.ollama-diagnostics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 20px 16px}
+.ollama-diagnostics .ollama-research-card{background:linear-gradient(145deg,rgba(93,22,71,.51),rgba(31,13,41,.81));border-color:rgba(255,102,198,.41)}
+.ollama-diagnostics .ollama-research-card>b{font-size:24px;color:#ff89d7}
+.ollama-diagnostics .ollama-research-values strong{font-size:18px;color:#ff89d7}
+@media(max-width:690px){.ollama-diagnostics{grid-template-columns:1fr}}
