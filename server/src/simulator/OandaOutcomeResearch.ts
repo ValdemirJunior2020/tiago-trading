@@ -119,7 +119,7 @@ export class OandaOutcomeResearch{
    const matched=usable.filter(t=>ids.has(String(t.id))).sort((a,b)=>Date.parse(a.closeTime)-Date.parse(b.closeTime))
    const lessons:VerifiedLesson[]=[]
    // Bound broker requests to keep the local research assistant responsive.
-   const contextIds=new Set(matched.slice(-12).map(t=>String(t.id)))
+   const contextIds=new Set(matched.filter(t=>!this.contextCache.has(String(t.id))).slice(-4).map(t=>String(t.id)))
    for(const t of matched){
     let features=this.contextCache.get(String(t.id))??null
     if(contextIds.has(String(t.id))&&!this.contextCache.has(String(t.id))){
