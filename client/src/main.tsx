@@ -354,9 +354,68 @@ function App(){
             lang={lang}
             researchOnly
           />
+          <StrategyPerformanceCard
+            name="OLLAMA AI LAB"
+            status={sim?.ollamaPaperExperiment?.position?(lang==='pt'?'PAPER • posição aberta':'PAPER • position open'):(lang==='pt'?'IA INDEPENDENTE':'INDEPENDENT AI')}
+            stats={sim?.strategyPerformance?.OLLAMA_AI_LAB}
+            lang={lang}
+            researchOnly
+          />
         </div>
       </section>
 
+
+
+      <section className="panel shadow-lab ollama-lab">
+        <div className="panel-head">
+          <div>
+            <span className="kicker"><BrainCircuit size={15}/> OLLAMA AI LAB • V1</span>
+            <h2>{lang==='pt'?'IA independente trabalhando':'Independent AI at work'}</h2>
+            <p>{lang==='pt'?'Experimento separado com US$1.000 virtuais. Ollama decide LONG / SHORT / WAIT / CLOSE sobre candles fechados; as regras matemáticas limitam as operações. Nenhuma ordem na OANDA.':'Separate $1,000 virtual experiment. Ollama decides LONG / SHORT / WAIT / CLOSE from completed candles; mathematical guards limit trading. No OANDA orders.'}</p>
+          </div>
+          <span className="locked-pill">PAPER ONLY</span>
+        </div>
+        <div className="ollama-lab-status">
+          <span className={health?.ollama?'pulse-dot':'offline-dot'}/>
+          <b>{health?.ollama?(lang==='pt'?'Ollama conectado':'Ollama connected'):(lang==='pt'?'Ollama desconectado':'Ollama disconnected')}</b>
+          <span>{lang==='pt'?'Motor:':'Engine:'} {sim?.ollamaPaperExperiment?.status??'WAITING'}</span>
+          <span>{lang==='pt'?'Última análise:':'Last analysis:'} {sim?.ollamaPaperExperiment?.lastReviewedAt?new Date(sim.ollamaPaperExperiment.lastReviewedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):(lang==='pt'?'aguardando':'waiting')}</span>
+        </div>
+        <div className="shadow-grid">
+          <div><small>{lang==='pt'?'SALDO VIRTUAL':'PAPER BALANCE'}</small><strong>{money(sim?.ollamaPaperExperiment?.balance)}</strong></div>
+          <div><small>{lang==='pt'?'LUCRO REALIZADO':'REALIZED P/L'}</small><strong className={Number(sim?.ollamaPaperExperiment?.realizedPL)>0?'profit-up':Number(sim?.ollamaPaperExperiment?.realizedPL)<0?'profit-down':''}>{signedMoney(sim?.ollamaPaperExperiment?.realizedPL??0)}</strong></div>
+          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><strong>{signedMoney(sim?.ollamaPaperExperiment?.openPnl??0)}</strong></div>
+          <div><small>{lang==='pt'?'PATRIMÔNIO VIRTUAL':'PAPER EQUITY'}</small><strong>{money(sim?.ollamaPaperExperiment?.equity)}</strong></div>
+          <div><small>{lang==='pt'?'ANÁLISES REAIS':'MODEL REVIEWS'}</small><strong>{sim?.ollamaPaperExperiment?.decisions??0}</strong></div>
+          <div><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.ollamaPaperExperiment?.signals??0}</strong></div>
+          <div><small>{lang==='pt'?'ABERTAS / FECHADAS':'OPENED / CLOSED'}</small><strong>{sim?.ollamaPaperExperiment?.opens??0} / {sim?.ollamaPaperExperiment?.closes??0}</strong></div>
+          <div><small>{lang==='pt'?'FALHAS REGISTRADAS':'RECORDED ERRORS'}</small><strong>{sim?.ollamaPaperExperiment?.errors??0}</strong></div>
+        </div>
+        <div className="shadow-position">
+          <small>{lang==='pt'?'POSIÇÃO EXCLUSIVA DA IA':'AI-ONLY POSITION'}</small>
+          <b>{sim?.ollamaPaperExperiment?.position?String(sim.ollamaPaperExperiment.position.symbol).replace('_','/')+' • '+String(sim.ollamaPaperExperiment.position.direction).toUpperCase():(lang==='pt'?'Nenhuma operação aberta':'No active trade')}</b>
+          {sim?.ollamaPaperExperiment?.position
+            ?<span>{lang==='pt'?'Entrada':'Entry'} {sim.ollamaPaperExperiment.position.entry} | Stop {sim.ollamaPaperExperiment.position.stop} | Target {sim.ollamaPaperExperiment.position.target} | Units {sim.ollamaPaperExperiment.position.units}</span>
+            :<span>{lang==='pt'?'A IA só abre operação quando decide com confiança suficiente e passa nas regras de risco.':'AI opens only on sufficiently confident decisions passing risk rules.'}</span>}
+        </div>
+        <div className="ollama-lab-decision">
+          <small>{lang==='pt'?'ÚLTIMA DECISÃO DA IA':'LATEST AI DECISION'}</small>
+          <b>{sim?.ollamaPaperExperiment?.lastDecision?.decision??'WAITING'} {sim?.ollamaPaperExperiment?.lastDecision?.symbol?'• '+String(sim.ollamaPaperExperiment.lastDecision.symbol).replace('_','/'):''}</b>
+          <span>{sim?.ollamaPaperExperiment?.lastDecision?.reason??(lang==='pt'?'Aguardando a primeira análise do Ollama.':'Awaiting first Ollama review.')}</span>
+          <small>{sim?.ollamaPaperExperiment?.lastDecision?.confidence!=null?(lang==='pt'?'Confiança: ':'Confidence: ')+(Number(sim.ollamaPaperExperiment.lastDecision.confidence)*100).toFixed(0)+'%':''}</small>
+        </div>
+        <div className="ollama-lab-feed">
+          <div className="ollama-lab-feed-title"><Activity size={15}/> {lang==='pt'?'ATIVIDADE REAL DA IA':'REAL AI ACTIVITY'} <small>{lang==='pt'?'Últimos eventos registrados':'Latest recorded events'}</small></div>
+          {(sim?.ollamaPaperExperiment?.events??[]).slice(0,10).map((e:any,i:number)=>
+            <div className="ollama-lab-event" key={String(e.at)+String(i)}>
+              <time>{new Date(e.at).toLocaleTimeString(lang==='pt'?'pt-BR':'en-US')}</time>
+              <b>{String(e.event||'').replace('OLLAMA_LAB_','').replaceAll('_',' ')}</b>
+              <span>{e.symbol?String(e.symbol).replace('_','/')+' • ':''}{e.decision?e.decision+' • ':''}{e.reason||e.pnl||''}</span>
+            </div>
+          )}
+          {!(sim?.ollamaPaperExperiment?.events?.length)&&<p>{lang==='pt'?'Ainda sem eventos. Os registros aparecerão quando o motor iniciar.':'No events yet. Activity will appear when the engine starts.'}</p>}
+        </div>
+      </section>
 
       <section className="panel shadow-lab">
         <div className="panel-head"><div>
