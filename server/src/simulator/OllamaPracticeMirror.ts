@@ -218,6 +218,20 @@ export class OllamaPracticeMirror{
   this.timer=setInterval(()=>void this.tick(),5000)
  }
  stop(){if(this.timer)clearInterval(this.timer);this.timer=null}
+ // Read-only manual recovery from an ambiguous broker response.
+ // Never opens, closes or moves the stop during this action.
+ async reconcileOnly(){
+  if(this.busy||!isIndependentPracticeEnabled()||this.state.status!=='REVIEW_REQUIRED'||!this.state.active)return this.snapshot()
+  this.busy=true
+  try{
+   await this.reconcileIntent()
+   if(this.state.status==='BROKER_OPEN')this.note('OLLAMA_OANDA_RECOVERED','OANDA ownership and attached stop confirmed; management resumes on next cycle')
+  }catch(e){
+   this.state.status='REVIEW_REQUIRED';this.state.lastError='Still requires review: '+String(e)
+   this.note('OLLAMA_OANDA_RECHECK_FAILED',this.state.lastError)
+  }finally{this.busy=false;this.save()}
+  return this.snapshot()
+ }
  // Test entry point; does not bypass any risk or ownership checks.
  async checkNow(){await this.tick()}
 }
