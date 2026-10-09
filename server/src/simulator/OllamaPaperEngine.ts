@@ -10,6 +10,7 @@ import type {MarketFeatures} from './OandaOutcomeResearch.js'
 import {scanOllamaSetups,resolveWaitObservation,questionableRsiReason} from './OllamaSignalReview.js'
 import type {SetupReview,WaitObservation,WaitOutcome} from './OllamaSignalReview.js'
 import type {OandaReadOnly} from '../broker/OandaReadOnly.js'
+import {isOandaForexSessionOpen} from '../broker/OandaMarketHours.js'
 
 export const OLLAMA_LAB_VERSION='ollama-independent-paper-v1'
 const INITIAL_BALANCE='1000'
@@ -30,7 +31,7 @@ export type AiDecision={decision:Action;confidence:number;reason:string}
 type Position={symbol:string;direction:Direction;entry:string;units:string;stop:string;target:string;initialRisk:string;openedAt:string;breakEven:boolean;slippagePipsPerSide?:number}
 type Stats={trades:number;wins:number;losses:number;grossProfit:string;grossLoss:string;netProfit:string;peakNetProfit:string;maxDrawdown:string;lastPnl:string;lastClosedAt:string|null}
 type Feed={at:string;event:string;symbol?:string;decision?:string;reason?:string;pnl?:string;confidence?:number}
-type LabState={lastBrokerSignal?:BrokerSignal|null;version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null;lastSetup?:SetupReview|null;pendingWaitObservations?:WaitObservation[];waitOutcomes?:WaitOutcome[];waitObserved?:number;waitReviewed?:number;waitFavorable?:number}
+type LabState={lastBrokerSignal?:BrokerSignal|null;version:string;startedAt:string;startingBalance:string;balance:string;realizedPL:string;openPnl:string;equity:string;position:Position|null;lastCandle:Record<string,string>;decisions:number;signals:number;opens:number;closes:number;vetoed:number;errors:number;lastReviewedAt:string|null;lastDecision:(AiDecision&{symbol:string;at:string})|null;lastAction:Feed|null;events:Feed[];stats:Stats;day:string;dayStartingEquity:string;paused:boolean;status:'WAITING'|'SCANNING'|'READY'|'ERROR'|'PAUSED'|'MARKET_CLOSED';lastMarket?:(MarketFeatures&{symbol:string;at:string;spreadPips:number})|null;lastSetup?:SetupReview|null;pendingWaitObservations?:WaitObservation[];waitOutcomes?:WaitOutcome[];waitObserved?:number;waitReviewed?:number;waitFavorable?:number}
 type Market={symbol:string;quote:BrokerQuote;m5:Candle[];m10:Candle[];position:Position|null;balance:string;indicators:MarketFeatures;brokerLessons:ReturnType<OandaOutcomeResearch['lessonsFor']>;setup:SetupReview}
 type ReadBroker=Pick<OandaReadOnly,'quote'|'candles'>
 type Options={baseDir?:string;logDir?:string;decide?:(market:Market)=>Promise<AiDecision>;now?:()=>Date}
@@ -275,6 +276,14 @@ export class OllamaPaperEngine{
  async process(symbol:string){
   if(this.state.paused||!PAIRS.includes(symbol))return
   try{
+   if(!isOandaForexSessionOpen(this.now())){
+    // A single informative event per market closure; no repeated bad-quote errors.
+    if(this.state.status!=='MARKET_CLOSED'){
+     this.state.status='MARKET_CLOSED'
+     this.record('OLLAMA_LAB_MARKET_CLOSED',{symbol,reason:'OANDA FX weekly close or daily break in New York; no fresh broker signal is generated'})
+    }
+    return
+   }
    const q=await this.broker.quote(symbol)
    if(!this.validQuote(symbol,q)){this.record('OLLAMA_LAB_SKIP',{symbol,reason:'Stale, malformed or wide-spread quote'});return}
    this.newDay()
