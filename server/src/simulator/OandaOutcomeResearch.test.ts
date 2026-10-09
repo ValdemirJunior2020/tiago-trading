@@ -29,9 +29,9 @@ describe('OANDA read-only outcome attribution',()=>{
   const dir=mkdtempSync(join(tmpdir(),'oanda-outcome-test-'));dirs.push(dir)
   const log=join(dir,'trades.jsonl')
   writeFileSync(log,JSON.stringify({event:'SHADOW_DEMO_MIRROR_OPENED',tradeId:'6',realizedPL:'9999'})+'\n')
-  let calls=0,afterTime=''
+  let calls=0;const candleTimes:string[]=[]
   const fake={closedTrades:async()=>{calls++;return[trade('6','-43.34'),trade('700','240')]},
-   candlesBefore:async(_symbol:string,tf:'M5'|'M10',time:string)=>{afterTime=time;return bars(tf==='M5'?35:25,tf==='M5'?5:10)}}
+   candlesBefore:async(_symbol:string,tf:'M5'|'M10',time:string)=>{candleTimes.push(time);return bars(tf==='M5'?35:25,tf==='M5'?5:10)}}
   const r=new OandaOutcomeResearch(fake as any,{mirrorLogFile:log,now:()=>new Date('2026-10-09T14:00:00Z')})
   await r.refresh();await r.refresh()
   const s=r.snapshot()
@@ -43,7 +43,12 @@ describe('OANDA read-only outcome attribution',()=>{
   expect(s.summary.featureSamples).toBe(1)
   expect(s.unattributedBrokerTrades).toBe(1)
   expect(s.examples[0].tradeId).toBe('6')
-  expect(afterTime).toBe('2026-10-08T12:00:00.000Z')
+  expect(candleTimes).toContain('2026-10-08T12:00:00.000Z')
+  expect(candleTimes).toContain('2026-10-09T12:00:00.000Z')
+  expect(s.chartCoverage).toBe(1)
+  expect(s.examples[0].charts?.beforeEntry).toHaveLength(35)
+  expect(s.examples[0].charts?.beforeExit).toHaveLength(35)
+  expect(r.lessonsFor('GBP_USD')[0].chartEvidence?.beforeExitCloses).toHaveLength(12)
   expect(r.lessonsFor('EUR_USD')).toEqual([])
   expect(r.completedSince('2026-10-09T00:00:00Z')).toHaveLength(1)
  })
