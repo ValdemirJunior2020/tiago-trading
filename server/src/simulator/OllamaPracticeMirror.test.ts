@@ -82,6 +82,21 @@ describe('single-account independent Ollama Practice ownership',()=>{
   expect(h.mirror.snapshot().status).toBe('BLOCKED')
   expect(h.mirror.snapshot().latestError).toContain('SHADOW_PRIORITY')
  })
+ it('recovers an ambiguous broker fill by read-only tag reconciliation without a second order',async()=>{
+  const h=harness()
+  await h.mirror.checkNow()
+  const originalOpen=h.broker.open
+  h.broker.open=async(spec:{clientId:string})=>{await originalOpen(spec);throw Error('response timed out after broker fill')}
+  h.setPaper(pos());await h.mirror.checkNow()
+  expect(h.calls.open).toBe(1)
+  expect(h.mirror.snapshot().status).toBe('REVIEW_REQUIRED')
+  await h.mirror.checkNow()
+  expect(h.calls.open).toBe(1)
+  await h.mirror.reconcileOnly()
+  expect(h.mirror.snapshot().status).toBe('BROKER_OPEN')
+  expect(h.mirror.snapshot().tradeId).toBe('91')
+  expect(h.calls.open).toBe(1)
+ })
  it('uses unique deterministic Ollama client IDs and never confuses tags',()=>{
   expect(ollamaClientId('A','EUR_USD')).toBe(ollamaClientId('A','EUR_USD'))
   expect(ollamaClientId('A','EUR_USD')).not.toBe(ollamaClientId('B','EUR_USD'))
