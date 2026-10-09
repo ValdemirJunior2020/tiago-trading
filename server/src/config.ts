@@ -14,6 +14,7 @@ const s = z.object({
   OANDA_API_TOKEN: z.string().default(''),
   OANDA_REST_BASE_URL: z.string().default('https://api-fxpractice.oanda.com'),
   OANDA_DEMO_MIRROR_ENABLED: z.string().default('true'),
+  OLLAMA_OANDA_PRACTICE_MIRROR_ENABLED: z.string().default('true'),
   OLLAMA_BASE_URL: z.string().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('qwen3:8b'),
   OLLAMA_TIMEOUT_MS: z.coerce.number().default(2000),
