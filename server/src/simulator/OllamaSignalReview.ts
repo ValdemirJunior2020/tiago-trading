@@ -73,5 +73,5 @@ export function questionableRsiReason(reason:string,zone:RsiZone):boolean{
  // Detect affirmative misclassification, not accurate claims such as "not oversold".
  const oversold=/\b(?:is|looks|appears|seems|suggests|indicates|shows|signals)\s+(?:somewhat\s+|potentially\s+|slightly\s+)?oversold\b/.test(text)
  const overbought=/\b(?:is|looks|appears|seems|suggests|indicates|shows|signals)\s+(?:somewhat\s+|potentially\s+|slightly\s+)?overbought\b/.test(text)
- return zone!=='OVERSOLD'&&oversold||zone!=='OVERBOUGHT'&&overbought
+ const suggestedOversold=/\\b(?:suggesting|indicating|showing|signals?)\\s+(?:potentially\\s+|possible\\s+)?oversold\\b/.test(text)\n const suggestedOverbought=/\\b(?:suggesting|indicating|showing|signals?)\\s+(?:potentially\\s+|possible\\s+)?overbought\\b/.test(text)\n return (zone!=='OVERSOLD'&&(oversold||suggestedOversold))||(zone!=='OVERBOUGHT'&&(overbought||suggestedOverbought))
 }
