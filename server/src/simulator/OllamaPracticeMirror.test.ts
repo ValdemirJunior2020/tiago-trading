@@ -54,6 +54,17 @@ describe('Ollama OANDA Practice direct execution, no virtual mirroring',()=>{
   expect(h.calls.open).toBe(0)
   expect(h.mirror.snapshot().status).toBe('WAITING_NEW_OLLAMA_SIGNAL')
  })
+ it('restores idle status rather than fake RECONCILING after restarting without an open broker trade',async()=>{
+  const h=harness()
+  await h.mirror.checkNow()
+  const again=new OllamaPracticeMirror(()=>({lastBrokerSignal:null}),()=>({position:null}),{
+   baseDir:h.dir,logDir:join(h.dir,'logs'),broker:h.broker as any,now
+  })
+  expect(again.snapshot().status).toBe('WAITING_NEW_OLLAMA_SIGNAL')
+  await again.checkNow()
+  expect(again.snapshot().status).toBe('WAITING_NEW_OLLAMA_SIGNAL')
+  expect(h.calls.open).toBe(0)
+ })
  it('ignores ALL historical virtual paper positions forever',async()=>{
   const h=harness()
   await h.mirror.checkNow();h.setOldPaper();await h.mirror.checkNow()
