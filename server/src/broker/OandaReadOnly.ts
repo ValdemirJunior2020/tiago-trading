@@ -145,6 +145,26 @@ export class OandaReadOnly{
    openTrades:Array.isArray(trades.trades)?trades.trades:[]
   }
  }
+ // Confirmed closed-trade data comes only from OANDA, never from local paper P/L.
+ async closedTrades(count=100){
+  const limit=Math.max(1,Math.min(250,Math.floor(count)))
+  const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades?state=CLOSED&count=${limit}`)
+  if(!Array.isArray(b.trades))throw new Error('OANDA closed trades payload unavailable')
+  return b.trades as Array<{id:string;instrument:string;state:string;initialUnits:string;openTime:string;closeTime:string;realizedPL:string}>
+ }
+ // Completed midpoint candles ending no later than the broker-confirmed entry time.
+ async candlesBefore(symbol:string,granularity:'M5'|'M10',before:string,count=40){
+  if(!/^[A-Z]{3}_[A-Z]{3}$/.test(symbol))throw new Error('Invalid historical instrument')
+  const ts=Date.parse(before)
+  if(!Number.isFinite(ts)||ts>Date.now()+60000)throw new Error('Invalid historical candle time')
+  const n=Math.max(25,Math.min(100,Math.floor(count)))
+  const path=`/v3/instruments/${symbol}/candles?price=M&granularity=${granularity}&count=${n}&to=${encodeURIComponent(new Date(ts).toISOString())}`
+  const b=await this.get(path)
+  if(!Array.isArray(b.candles))throw new Error('OANDA historical candles unavailable')
+  return b.candles.filter((c:any)=>c.complete&&c.mid&&Date.parse(String(c.time))<ts).map((c:any)=>({
+   time:String(c.time),open:Number(c.mid.o),high:Number(c.mid.h),low:Number(c.mid.l),close:Number(c.mid.c),volume:Number(c.volume||0)
+  }))
+ }
  async candles(symbol:string,granularity:'M1'|'M5'|'M10'|'M15'|'D'|'W',count=60){
   const b=await this.get(`/v3/instruments/${encodeURIComponent(symbol)}/candles?price=M&granularity=${granularity}&count=${count}`)
   return (b.candles||[]).filter((c:any)=>c.complete&&c.mid).map((c:any)=>({
