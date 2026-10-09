@@ -5,6 +5,7 @@ import{
   Globe2,LayoutDashboard,LineChart,RefreshCw,ShieldCheck,
   Sparkles,Target,WalletCards,Wifi,WifiOff
 }from'lucide-react'
+import OllamaChartLab from './OllamaChartLab'
 import'./styles.css'
 
 type Lang='en'|'pt'
@@ -459,6 +460,7 @@ function App(){
             :'Any existing paper position is never opened retroactively. Only new validated signals are mirrored after safety checks.'}</p>
         </div>
         <div className="ollama-diagnostics">
+          <OllamaChartLab data={sim?.ollamaPaperExperiment?.brokerLearning} lang={lang}/>
           <div className="ollama-research-card">
             <small>{lang==='pt'?'SETUP OBJETIVO · CANDLES OANDA':'OBJECTIVE SETUP · OANDA CANDLES'}</small>
             <b>{sim?.ollamaPaperExperiment?.lastSetup?.direction==='NONE'?(lang==='pt'?'SEM CONFIRMAÇÃO':'NO CONFIRMED SETUP'):(sim?.ollamaPaperExperiment?.lastSetup?.direction??'WAITING')}</b>
