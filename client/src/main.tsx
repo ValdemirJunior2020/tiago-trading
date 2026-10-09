@@ -366,6 +366,34 @@ function App(){
 
 
 
+
+      <section className="panel shadow-lab ollama-lab">
+        <div className="panel-head"><div>
+          <span className="kicker"><BrainCircuit size={15}/> SHADOW MEMORY • OLLAMA</span>
+          <h2>{lang==='pt'?'Memória dos erros do Shadow':'Shadow loss memory'}</h2>
+          <p>{lang==='pt'?'Ollama consulta operações fechadas do Shadow e registra alertas experimentais. Não altera nenhuma operação. OpenViking é opcional e roda localmente.':'Ollama consults completed Shadow results and logs experimental warnings. It never changes trades. OpenViking is optional and local.'}</p>
+        </div><span className="locked-pill">OBSERVATION ONLY</span></div>
+        <div className="shadow-grid">
+          <div><small>{lang==='pt'?'TRADES NA MEMÓRIA':'TRADES IN MEMORY'}</small><strong>{sim?.ollamaShadowMemory?.memory?.total??0}</strong></div>
+          <div><small>{lang==='pt'?'PERDAS HISTÓRICAS':'PAST LOSSES'}</small><strong>{sim?.ollamaShadowMemory?.memory?.losses??0}</strong></div>
+          <div><small>{lang==='pt'?'AVALIAÇÕES DA IA':'AI REVIEWS'}</small><strong>{sim?.ollamaShadowMemory?.decisions??0}</strong></div>
+          <div><small>{lang==='pt'?'ALERTAS DE SIMILARIDADE':'SIMILARITY WARNINGS'}</small><strong>{sim?.ollamaShadowMemory?.warnings??0}</strong></div>
+        </div>
+        <div className="shadow-position">
+          <small>OPENVIKING • {sim?.ollamaShadowMemory?.openViking??'OFFLINE'} | {lang==='pt'?'Falhas':'Errors'}: {sim?.ollamaShadowMemory?.errors??0}</small>
+          <b>{sim?.ollamaShadowMemory?.lastDecision?(String(sim.ollamaShadowMemory.lastDecision.symbol).replace('_','/')+' • '+sim.ollamaShadowMemory.lastDecision.decision):(lang==='pt'?'Aguardando primeira análise com memória':'Waiting for first memory review')}</b>
+          <span>{sim?.ollamaShadowMemory?.lastDecision?.reason??(lang==='pt'?'Os resultados antigos do Shadow serão consultados sem alterar os trades.':'Shadow history will be read without changing trades.')}</span>
+        </div>
+        <div className="ollama-lab-feed">
+          <div className="ollama-lab-feed-title"><Activity size={15}/> {lang==='pt'?'HISTÓRICO DAS AVALIAÇÕES COM MEMÓRIA':'MEMORY REVIEW HISTORY'}</div>
+          {(sim?.ollamaShadowMemory?.recent??[]).slice(0,6).map((e:any,i:number)=><div className="ollama-lab-event" key={e.at+String(i)}>
+            <time>{new Date(e.at).toLocaleTimeString(lang==='pt'?'pt-BR':'en-US')}</time>
+            <b>{e.decision} • {String(e.symbol).replace('_','/')}</b>
+            <span>{e.compare==='SIMILAR_SHADOW_LOSS_EXISTS'?(lang==='pt'?'Atenção: perdas parecidas no histórico. ':'Similar Shadow loss. '):''}{e.reason}</span>
+          </div>)}
+        </div>
+      </section>
+
       <section className="panel shadow-lab ollama-lab">
         <div className="panel-head">
           <div>
