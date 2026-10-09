@@ -12,7 +12,8 @@ export type MarketFeatures={
 }
 export type VerifiedLesson={
  tradeId:string;symbol:string;direction:'LONG'|'SHORT';openedAt:string;closedAt:string;
- realizedPL:number;outcome:'WIN'|'LOSS'|'FLAT';features:MarketFeatures|null
+ realizedPL:number;outcome:'WIN'|'LOSS'|'FLAT';features:MarketFeatures|null;
+ charts?:{beforeEntry:Candle[];beforeExit:Candle[];granularity:'M5';entryTime:string;exitTime:string}
 }
 type Status='WAITING'|'READY'|'UNAVAILABLE'
 type Options={mirrorLogFile?:string;now?:()=>Date;refreshMs?:number}
@@ -79,6 +80,7 @@ export class OandaOutcomeResearch{
  private lastAttempt=0
  private lessons:VerifiedLesson[]=[]
  private contextCache=new Map<string,MarketFeatures|null>()
+ private chartCache=new Map<string,{beforeEntry:Candle[];beforeExit:Candle[];granularity:'M5';entryTime:string;exitTime:string}>()
  private status:Status='WAITING'
  private lastSync:string|null=null
  private error:string|null=null
@@ -97,10 +99,16 @@ export class OandaOutcomeResearch{
   reviewedBrokerClosedTrades:this.closedTradesSeen,recognizedMirrorIds:this.linkedIds,
   unattributedBrokerTrades:this.missingAttribution,historyCap:this.historyCap,
   summary:summarizeBrokerLessons(this.lessons),
-  examples:this.lessons.slice(-8).reverse()
+  examples:this.lessons.slice(-8).reverse(),
+  chartCoverage:this.lessons.filter(t=>t.charts?.beforeEntry.length&&t.charts?.beforeExit.length).length
  }}
  lessonsFor(symbol:string){return this.lessons.filter(x=>x.symbol===symbol&&x.features).slice(-6).map(x=>({
   outcome:x.outcome,realizedPL:x.realizedPL,direction:x.direction,features:x.features,
+  chartEvidence:x.charts?{
+   beforeEntryCloses:x.charts.beforeEntry.slice(-12).map(c=>Number(c.close.toFixed(6))),
+   beforeExitCloses:x.charts.beforeExit.slice(-12).map(c=>Number(c.close.toFixed(6))),
+   granularity:x.charts.granularity,entryTime:x.charts.entryTime,exitTime:x.charts.exitTime
+  }:null,
   note:'Actual OANDA closed trade, confirmed Shadow mirror ID. Observational sample, not a forecast.'
  }))}
  completedSince(start:string){
@@ -130,11 +138,16 @@ export class OandaOutcomeResearch{
       ])
       features=featuresFromCandles(m5,m10)
       this.contextCache.set(String(t.id),features)
+      // Different chart windows: completed OANDA mid candles prior to entry and exit.
+      try{
+       const exitM5=await this.broker.candlesBefore(t.instrument,'M5',t.closeTime,60)
+       this.chartCache.set(String(t.id),{beforeEntry:m5.slice(-35),beforeExit:exitM5.slice(-40),granularity:'M5',entryTime:t.openTime,exitTime:t.closeTime})
+      }catch{/* Indicators remain available; chart coverage is explicitly partial. */}
      }catch{this.contextCache.set(String(t.id),null)}
     }
     const pl=Number(t.realizedPL)
     lessons.push({tradeId:String(t.id),symbol:t.instrument,direction:Number(t.initialUnits)<0?'SHORT':'LONG',
-     openedAt:t.openTime,closedAt:t.closeTime,realizedPL:pl,outcome:pl>0?'WIN':pl<0?'LOSS':'FLAT',features})
+     openedAt:t.openTime,closedAt:t.closeTime,realizedPL:pl,outcome:pl>0?'WIN':pl<0?'LOSS':'FLAT',features,charts:this.chartCache.get(String(t.id))})
    }
    this.lessons=lessons
    this.status='READY';this.error=null;this.lastSync=this.now().toISOString()
