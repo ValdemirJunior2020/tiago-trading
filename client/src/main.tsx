@@ -451,6 +451,13 @@ function App(){
               <span>{lang==='pt'?'PADRÕES AMOSTRADOS':'SAMPLED PATTERNS'} <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.featureSamples??0}</strong></span>
               <span>{lang==='pt'?'STATUS':'STATUS'} <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.status??'WAITING'}</strong></span>
             </div>
+            <div className="ollama-condition-list">
+              <small>{lang==='pt'?'CONDIÇÕES OBSERVADAS NAS VITÓRIAS':'OBSERVED WINNING CONDITIONS'} · {lang==='pt'?'mínimo 3 exemplos':'minimum 3 examples'}</small>
+              {(sim?.ollamaPaperExperiment?.brokerLearning?.summary?.observedWinningConditions??[]).length
+                ?(sim.ollamaPaperExperiment.brokerLearning.summary.observedWinningConditions as Array<{condition:string;wins:number;losses:number}>).map((c)=>
+                  <span key={c.condition}>{c.condition.replaceAll('_',' ')} · W {c.wins} / L {c.losses}</span>)
+                :<span>{lang==='pt'?'Sem amostra suficiente para mostrar um padrão confiável.':'Not enough confirmed examples to report a pattern.'}</span>}
+            </div>
             <p>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.trades
               ?(lang==='pt'?'Só resultados fechados pela OANDA e vinculados ao ID de espelho do Shadow.':'OANDA-confirmed closures linked to Shadow mirror IDs only.')
               :(lang==='pt'?'Ainda sem amostra vinculada; dados locais não são considerados lucro real.':'No linked broker sample yet; local profits are not treated as real.')}</p>
