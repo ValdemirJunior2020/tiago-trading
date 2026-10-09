@@ -21,7 +21,7 @@ export function parseShadowLessons(jsonl:string):ShadowLesson[]{
   if(!/^[A-Z]{3}_[A-Z]{3}$/.test(symbol)||!Number.isFinite(pnl))continue
   const related=open.get(symbol)||{}
   const at=String(r.at||r.closedAt||'')
-  const id=createHash('sha256').update(JSON.stringify([symbol,r.openedAt||related.at||'',at,r.pnl,r.units,r.reason])).digest('hex').slice(0,24)
+  const id=createHash('sha256').update(JSON.stringify([symbol,r.openedAt||'',at,r.pnl,r.units,r.reason])).digest('hex').slice(0,24)
   if(seen.has(id))continue
   seen.add(id)
   result.push({id,symbol,direction:String(r.direction||related.direction||'UNKNOWN').toUpperCase(),entry:Number.isFinite(entry)?entry:num(related.entry),exit,pnl,closedAt:at,reason:String(r.reason||'UNSPECIFIED')})
