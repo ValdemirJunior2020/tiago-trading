@@ -150,20 +150,44 @@ export class OandaReadOnly{
   const limit=Math.max(1,Math.min(250,Math.floor(count)))
   const b=await this.get(`/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades?state=CLOSED&count=${limit}`)
   if(!Array.isArray(b.trades))throw new Error('OANDA closed trades payload unavailable')
-  return b.trades as Array<{id:string;instrument:string;state:string;initialUnits:string;openTime:string;closeTime:string;realizedPL:string}>
+  return b.trades as Array<{id:string;instrument:string;state:string;initialUnits:string;openTime:string;closeTime:string;realizedPL:string;price?:string;averageClosePrice?:string;stopLossOrder?:{price?:string};takeProfitOrder?:{price?:string}}>
  }
- // Completed midpoint candles ending no later than the broker-confirmed entry time.
- async candlesBefore(symbol:string,granularity:'M5'|'M10',before:string,count=40){
+ // Historical midpoint candles are observations, NEVER executed fill prices.
+ // Reject candles that were not completed by the requested cutoff (prevent look-ahead).
+ async candlesBefore(symbol:string,granularity:'M1'|'M5'|'M10'|'M15'|'H1',before:string,count=40){
   if(!/^[A-Z]{3}_[A-Z]{3}$/.test(symbol))throw new Error('Invalid historical instrument')
   const ts=Date.parse(before)
   if(!Number.isFinite(ts)||ts>Date.now()+60000)throw new Error('Invalid historical candle time')
-  const n=Math.max(25,Math.min(100,Math.floor(count)))
-  const path=`/v3/instruments/${symbol}/candles?price=M&granularity=${granularity}&count=${n}&to=${encodeURIComponent(new Date(ts).toISOString())}`
+  const ms:{[key:string]:number}={M1:60000,M5:300000,M10:600000,M15:900000,H1:3600000}
+  const n=Math.max(25,Math.min(180,Math.floor(count)))
+  const path=`/v3/instruments/${symbol}/candles?price=M&granularity=${granularity}&count=${n+3}&to=${encodeURIComponent(new Date(ts).toISOString())}`
   const b=await this.get(path)
   if(!Array.isArray(b.candles))throw new Error('OANDA historical candles unavailable')
-  return b.candles.filter((c:any)=>c.complete&&c.mid&&Date.parse(String(c.time))<ts).map((c:any)=>({
-   time:String(c.time),open:Number(c.mid.o),high:Number(c.mid.h),low:Number(c.mid.l),close:Number(c.mid.c),volume:Number(c.volume||0)
-  }))
+  return b.candles.filter((c:any)=>c.complete&&c.mid&&Number.isFinite(Date.parse(String(c.time)))&&
+   Date.parse(String(c.time))+ms[granularity]<=ts).map((c:any)=>({
+    time:String(c.time),open:Number(c.mid.o),high:Number(c.mid.h),low:Number(c.mid.l),close:Number(c.mid.c),volume:Number(c.volume||0)
+   })).filter((c:any)=>[c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite)).slice(-n)
+ }
+ // Strictly bounded completed bars from entry to close, with no synthetic interpolation.
+ // Caller must select a granularity fitting <=240 candles before fetching.
+ async candlesDuring(symbol:string,granularity:'M1'|'M5'|'M10'|'M15'|'H1'|'H4'|'D'|'W',from:string,to:string){
+  if(!/^[A-Z]{3}_[A-Z]{3}$/.test(symbol))throw new Error('Invalid historical instrument')
+  const fromMs=Date.parse(from),toMs=Date.parse(to)
+  const sizes:{[key:string]:number}={M1:60000,M5:300000,M10:600000,M15:900000,H1:3600000,H4:14400000,D:86400000,W:604800000}
+  const interval=sizes[granularity]
+  if(!Number.isFinite(fromMs)||!Number.isFinite(toMs)||fromMs>=toMs||toMs>Date.now()+60000)
+   throw new Error('Invalid OANDA trade history window')
+  if((toMs-fromMs)/interval>240)throw new Error('Trade history exceeds bounded candle request')
+  // Request one preceding bar for boundary alignment, then filter to the trade interval.
+  const fromQuery=new Date(fromMs-interval).toISOString()
+  const path=`/v3/instruments/${symbol}/candles?price=M&granularity=${granularity}&from=${encodeURIComponent(fromQuery)}&to=${encodeURIComponent(new Date(toMs).toISOString())}`
+  const b=await this.get(path)
+  if(!Array.isArray(b.candles))throw new Error('OANDA trade-interval candles unavailable')
+  return b.candles.filter((c:any)=>c.complete&&c.mid&&Number.isFinite(Date.parse(String(c.time)))&&
+   Date.parse(String(c.time))>=fromMs&&Date.parse(String(c.time))+interval<=toMs)
+   .map((c:any)=>({time:String(c.time),open:Number(c.mid.o),high:Number(c.mid.h),
+    low:Number(c.mid.l),close:Number(c.mid.c),volume:Number(c.volume||0)}))
+   .filter((c:any)=>[c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite)).slice(0,240)
  }
  async candles(symbol:string,granularity:'M1'|'M5'|'M10'|'M15'|'D'|'W',count=60){
   const b=await this.get(`/v3/instruments/${encodeURIComponent(symbol)}/candles?price=M&granularity=${granularity}&count=${count}`)
