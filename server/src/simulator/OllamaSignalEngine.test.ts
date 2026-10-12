@@ -1,8 +1,8 @@
 import {describe,it,expect,afterEach,vi} from 'vitest'
-import {mkdtempSync,rmSync,existsSync,readFileSync} from 'node:fs'
+import {mkdtempSync,rmSync,existsSync,readFileSync,writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {OllamaPaperEngine,parseAiLabDecision,queryIndependentOllama} from './OllamaPaperEngine.js'
+import {OllamaSignalEngine,parseAiLabDecision,queryIndependentOllama} from './OllamaSignalEngine.js'
 const dirs:string[]=[]
 const TEST_NOW=new Date('2026-10-09T19:30:00.000Z') // Fri 15:30 EDT, live market open
 const bars=(count:number,step:number)=>Array.from({length:count},(_,i)=>{
@@ -10,18 +10,18 @@ const bars=(count:number,step:number)=>Array.from({length:count},(_,i)=>{
  return {time:new Date(Date.UTC(2026,9,8,10,i*5)).toISOString(),open:close-step,high:close+0.0002,low:close-0.0002,close,volume:100+i}
 })
 const quote=(bid='1.10100',ask='1.10115')=>({symbol:'EUR_USD',bid,ask,mid:String((Number(bid)+Number(ask))/2),timestamp:TEST_NOW.toISOString()})
-function setup(decision:{decision:'LONG'|'SHORT'|'WAIT'|'CLOSE';confidence:number;reason:string}={decision:'LONG',confidence:0.91,reason:'Price action paper hypothesis'}){
- const dir=mkdtempSync(join(tmpdir(),'ollama-paper-test-'));dirs.push(dir)
+function setup(decision:{decision:'LONG'|'SHORT'|'WAIT'|'CLOSE';confidence:number;reason:string}={decision:'LONG',confidence:0.91,reason:'Price action from completed OANDA candles'}){
+ const dir=mkdtempSync(join(tmpdir(),'ollama-signal-test-'));dirs.push(dir)
  let q=quote(),m5=bars(30,0.00001),reads=0
  const broker={quote:async()=>q,candles:async(_s:string,tf:string)=>{reads++;return tf==='M5'?m5:bars(25,0.00001)}}
  const calls:{count:number}={count:0}
  const decide=async()=>{calls.count++;return decision}
- const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide,now:()=>TEST_NOW})
+ const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide,now:()=>TEST_NOW})
  return{engine,dir,calls,reads:()=>reads,setQuote:(v:ReturnType<typeof quote>)=>{q=v},newCandle:()=>{m5=[...m5,bars(31,0.00001).at(-1)!]}}
 }
 afterEach(()=>{vi.unstubAllGlobals();for(const d of dirs.splice(0))rmSync(d,{recursive:true,force:true})})
 describe('Ollama JSON response safeguards',()=>{
- const market=()=>({symbol:'EUR_USD',quote:quote(),position:null,balance:'1000',m5:bars(30,.00001),m10:bars(25,.00001),
+ const market=()=>({symbol:'EUR_USD',quote:quote(),m5:bars(30,.00001),m10:bars(25,.00001),
   indicators:{rsi14:35,bbPosition:'INSIDE',volumeRatio:.9,macroTrend:'DOWN',close:1.1,macroSma20:1.1,macroClose:1.09},
   setup:{rsiZone:'NEUTRAL',direction:'NONE',score:3,maxScore:5,qualified:false,kind:'NO_QUALIFIED_SETUP',
    source:'COMPLETED_OANDA_CANDLES',rsi14:35,spreadPips:1,checks:[],missing:[],details:''},
@@ -65,16 +65,13 @@ describe('independent Ollama broker-only signals',()=>{
   await engine.process('EUR_USD');await engine.process('EUR_USD')
   expect(calls.count).toBe(1)
   const state=engine.snapshot()
-  expect(state.opens).toBe(0)
-  expect(state.position).toBeNull()
-  expect(state.realizedPL).toBe('0')
-  expect(state.openPnl).toBe('0')
-  expect(state.executionMode).toBe('OANDA_PRACTICE_SIGNALS_ONLY')
+  expect(state.executionMode).toBe('OANDA_PRACTICE_ONLY')
+  expect(state.executionMode).toBe('OANDA_PRACTICE_ONLY')
   expect(state.lastBrokerSignal?.symbol).toBe('EUR_USD')
   expect(state.lastBrokerSignal?.action).toBe('OPEN')
   expect(Number(state.lastBrokerSignal?.units)).toBeGreaterThan(0)
-  expect(existsSync(join(dir,'ollama-paper-state.json'))).toBe(true)
-  const trades=readFileSync(join(dir,'logs','trades.jsonl'),'utf8')
+  expect(existsSync(join(dir,'ollama-signal-state.json'))).toBe(true)
+  const trades=readFileSync(join(dir,'logs','signals.jsonl'),'utf8')
   expect(trades).toContain('OLLAMA_OANDA_SIGNAL')
   expect(trades).not.toContain('OLLAMA_LAB_PAPER_OPEN')
   expect(existsSync(join(dir,'simulator-state.json'))).toBe(false)
@@ -83,7 +80,6 @@ describe('independent Ollama broker-only signals',()=>{
  it('ignores low confidence, and never trades unsupported quote-currency pairs',async()=>{
   const {engine}=setup({decision:'SHORT',confidence:0.55,reason:'Low conviction'})
   await engine.process('EUR_USD');await engine.process('USD_JPY')
-  expect(engine.snapshot().opens).toBe(0)
  })
  it('does not perform any virtual stop or claim virtual realized P/L when OANDA quote moves',async()=>{
   const {engine,setQuote}=setup()
@@ -92,16 +88,13 @@ describe('independent Ollama broker-only signals',()=>{
   expect(intent?.stop).toBeTruthy()
   setQuote(quote(String(Number(intent!.stop)-0.0002),String(Number(intent!.stop)+0.0001)))
   await engine.process('EUR_USD')
-  expect(engine.snapshot().position).toBeNull()
-  expect(engine.snapshot().closes).toBe(0)
-  expect(engine.snapshot().realizedPL).toBe('0')
   expect(engine.snapshot().lastBrokerSignal?.key).toBe(intent?.key)
  })
  it('does not generate market signals or repeated stale-quote skips after Friday market close',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'ollama-market-closed-'));dirs.push(dir)
   let quotes=0,decisions=0
   const broker={quote:async()=>{quotes++;return quote()},candles:async()=>bars(30,.00001)}
-  const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),
+  const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),
    now:()=>new Date('2026-10-09T21:11:00.000Z'),decide:async()=>{decisions++;return{decision:'LONG' as const,confidence:.99,reason:'should not execute'}}})
   await engine.process('EUR_USD');await engine.process('GBP_USD');await engine.process('EUR_USD')
   expect(quotes).toBe(0);expect(decisions).toBe(0)
@@ -112,13 +105,40 @@ describe('independent Ollama broker-only signals',()=>{
   expect(result.events.filter((x:any)=>x.event==='OLLAMA_LAB_MARKET_CLOSED')).toHaveLength(1)
   expect(result.events.some((x:any)=>x.event==='OLLAMA_LAB_SKIP')).toBe(false)
  })
+ it('migrates historical Ollama state without retaining paper balances or losing broker signal ID',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'ollama-signal-migration-'));dirs.push(dir)
+  const saved={
+   version:'ollama-independent-paper-v1',startedAt:TEST_NOW.toISOString(),
+   lastBrokerSignal:{key:'EUR_USD:2026-10-11T00:00:00Z:long',action:'OPEN',symbol:'EUR_USD',
+    direction:'long',units:'1000',entry:'1.12',stop:'1.11',target:'1.14',
+    at:TEST_NOW.toISOString(),candleTime:TEST_NOW.toISOString(),confidence:.9},
+   lastCandle:{EUR_USD:'2026-10-11T00:00:00Z'},events:[{event:'OLLAMA_LAB_PAPER_CLOSE'},
+    {event:'OLLAMA_OANDA_SIGNAL',at:TEST_NOW.toISOString()}],
+   balance:'1550',realizedPL:'550',openPnl:'38',position:{symbol:'EUR_USD'},stats:{netProfit:'550'},
+   decisions:486,signals:2,errors:7
+  }
+  const old=join(dir,'ollama-paper-state.json')
+  writeFileSync(old,JSON.stringify(saved))
+  const broker={quote:async()=>quote(),candles:async()=>bars(30,.00001)}
+  const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),now:()=>TEST_NOW})
+  const cleanFile=join(dir,'ollama-signal-state.json')
+  expect(existsSync(cleanFile)).toBe(true)
+  expect(existsSync(old)).toBe(false)
+  const contents=readFileSync(cleanFile,'utf8')
+  expect(contents).not.toContain('"balance"')
+  expect(contents).not.toContain('"realizedPL"')
+  expect(contents).not.toContain('"position"')
+  expect(contents).not.toContain('PAPER_CLOSE')
+  expect(engine.snapshot().lastBrokerSignal?.key).toBe(saved.lastBrokerSignal.key)
+  expect(engine.snapshot().decisions).toBe(486)
+  expect(engine.snapshot().errors).toBe(7)
+ })
  it('logs model exceptions rather than opening positions',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'ollama-error-test-'));dirs.push(dir)
   const broker={quote:async()=>quote(),candles:async(_s:string,t:string)=>bars(t==='M5'?30:25,0.00001)}
-  const engine=new OllamaPaperEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),now:()=>TEST_NOW,decide:async()=>{throw Error('model offline')}})
+  const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),now:()=>TEST_NOW,decide:async()=>{throw Error('model offline')}})
   await engine.process('EUR_USD')
   expect(engine.snapshot().status).toBe('ERROR')
   expect(engine.snapshot().errors).toBe(1)
-  expect(engine.snapshot().opens).toBe(0)
  })
 })

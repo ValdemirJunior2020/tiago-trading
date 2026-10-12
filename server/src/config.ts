@@ -19,9 +19,7 @@ const s = z.object({
   OLLAMA_MODEL: z.string().default('qwen3:8b'),
   OLLAMA_TIMEOUT_MS: z.coerce.number().default(2000),
   TRADE_PAIRS: z.string().default('EUR_USD,GBP_USD,USD_JPY'),
-  SIMULATOR_ENABLED: z.string().default('true'),
-  SIMULATOR_POLL_MS: z.coerce.number().default(30000),
-  SIMULATOR_END_AT: z.string().default('2027-01-01T00:00:00-05:00')
+  SHADOW_OANDA_POLL_MS: z.coerce.number().default(30000)
 })
 
 export const env = s.parse(process.env)
@@ -33,8 +31,10 @@ export const LIMITS = Object.freeze({
   riskPerTrade: new Decimal('0.0025')
 })
 
-export const BROKER_MODE = env.OANDA_REST_BASE_URL.includes('fxpractice') ? 'DEMO' : 'LIVE'
+export const BROKER_MODE = env.OANDA_REST_BASE_URL.replace(/\/$/,'')==='https://api-fxpractice.oanda.com' ? 'DEMO' : 'DISABLED'
 export const OANDA_DEMO_MIRROR_ENABLED = env.OANDA_DEMO_MIRROR_ENABLED.toLowerCase()==='true' && BROKER_MODE==='DEMO'
 
-export const SIMULATOR_PAIRS = env.TRADE_PAIRS.split(',').map(x=>x.trim()).filter(Boolean)
-export const SIMULATOR_ENABLED = env.SIMULATOR_ENABLED.toLowerCase()==='true'
+export const SHADOW_OANDA_PAIRS = env.TRADE_PAIRS.split(',').map(x=>x.trim()).filter(Boolean)
+
+// Do not initialize this service against OANDA Live without a separate, explicit implementation.
+if(BROKER_MODE!=='DEMO')throw new Error('Only OANDA Practice is supported; LIVE endpoint is disabled')

@@ -52,10 +52,3 @@ export function evaluate(c:Context):StrategySignal{
 }
 
 
-export function evaluateNoMacro(c:Context):StrategySignal{
- if(c.close<c.bbLower&&c.rsi14<30&&c.volume>=c.vma20*1.5)
-  return{decision:'LONG',confidence:1,reasons:['NO_MACRO','lower BB breach','RSI<30','volume spike']}
- if(c.close>c.bbUpper&&c.rsi14>70&&c.volume>=c.vma20*1.5)
-  return{decision:'SHORT',confidence:1,reasons:['NO_MACRO','upper BB breach','RSI>70','volume spike']}
- return{decision:'WAIT',confidence:0,reasons:['NO_MACRO conditions not aligned']}
-}
