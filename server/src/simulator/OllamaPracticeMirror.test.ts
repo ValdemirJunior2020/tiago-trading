@@ -3,7 +3,7 @@ import{mkdtempSync,rmSync}from'node:fs'
 import{tmpdir}from'node:os'
 import{join}from'node:path'
 import{OllamaPracticeMirror}from'./OllamaPracticeMirror.js'
-import type{BrokerSignal}from'./OllamaPaperEngine.js'
+import type{BrokerSignal}from'./OllamaSignalEngine.js'
 import{OLLAMA_TRADE_TAG,isTagged,ollamaClientId}from'../broker/OllamaPracticeBroker.js'
 
 const dirs:string[]=[]
