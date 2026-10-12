@@ -1,97 +1,65 @@
-# ProfitMind Forex / Tiago Bot Forex
+# Tiago Trading — OANDA Practice Only
 
-Local-first Forex analysis and risk-control system using TypeScript, React, OANDA market/account data and local Ollama.
+Two operational engines only: **Shadow 3/4** and **Ollama**. Both use the same
+**OANDA Practice** account. The app rejects a Live OANDA REST endpoint.
 
-## Current working scope
-- Reads live OANDA account state, positions and Forex quotes.
-- Dashboard refreshes balance, equity, margin, positions and EUR/USD, GBP/USD, USD/JPY quotes.
-- Uses local Ollama as a secondary trade critic.
-- Builds deterministic trade plans with a 0.8% protective-stop reference.
-- Revalidates a real/manual fill against the 0.1% slippage ceiling and recalculates the 0.8% stop from that actual fill.
-- Risks 0.25% of equity per planned trade.
-- Enforces a 3% rolling-24h drawdown kill switch.
-- Persists rolling equity history under `data/risk-equity.json`, so restarting the server does not reset the 24h drawdown guard.
-- English + Português do Brasil UI.
+## Single source of truth for financial results
+- **OANDA account balance/equity/margin:** broker `/api/oanda-audit`, not a locally calculated P/L.
+- **Shadow 3/4 realized P/L:** confirmed closed OANDA Trade IDs **linked to existing Shadow mirror audit logs**. Incomplete history/attribution is clearly marked. Shadow stops, trailing, entries, exits and its internal state machine are unchanged.
+- **Shadow open P/L/position:** OANDA `openTrades` confirmed by the current broker mirror Trade ID. Missing match is a synchronization warning, never fabricated P/L.
+- **Ollama realized/open P/L:** OANDA trades explicitly tagged `TIAGO_OLLAMA` and reconciled by broker Trade ID.
+- **Historical Shadow chart lab:** six OANDA OHLC charts per attributed closed trade; indicators are observations and not returns.
 
-## Safety boundary
-This repository intentionally does **not** submit, modify or close real-money broker orders automatically. Broker write methods are not implemented. It produces validated trade plans for manual review/execution.
+A broker-confirmed **Practice** trade is an actual *demo-account* execution; it
+does not represent earnings deposited in a Live account. Only the user may
+authorize future separate Live account development.
 
-The Fimathe material is being incorporated as a strategy-analysis layer, but the exact automated channel construction must only use rules that are sufficiently defined and validated; undocumented rules are not guessed.
+## Retired engines
+Strict 4/4 independent paper trading, No Macro + Early Exit, Fimathe, simulated
+scoreboard and virtual P/L were removed. The former legacy `ResearchSimulator`,
+virtual Ollama paper engine and virtual-memory research are not started.
 
-## Start
-Put your OANDA credentials only in the local `.env` file (never commit it), then:
+## Start — Windows
+Keep your existing local `.env` secret. Required keys:
 
-```bash
-npm install
-npm run verify
-npm run dev
+```ini
+OANDA_REST_BASE_URL=https://api-fxpractice.oanda.com
+OANDA_ACCOUNT_ID=YOUR_PRACTICE_ACCOUNT_ID
+OANDA_API_TOKEN=YOUR_PRACTICE_API_TOKEN
+OANDA_DEMO_MIRROR_ENABLED=true
+OLLAMA_OANDA_PRACTICE_MIRROR_ENABLED=true
 ```
 
-Or on Windows, double-click `START.bat`.
+Double-click **`RUN-TIAGO-OANDA.bat`** or `START.bat`; the previous
+`RUN-SIMULATOR-24-7.bat` is a compatibility shortcut to the new runner.
 
-Expected local addresses:
-- Dashboard: http://127.0.0.1:5173
-- Server health: http://127.0.0.1:8790/health
+Dashboard: http://127.0.0.1:5173  
+Broker audit: http://127.0.0.1:8790/api/oanda-audit  
+Broker-only engines: http://127.0.0.1:8790/api/engine  
+Ollama broker reconciliation: http://127.0.0.1:8790/api/ollama-mirror
 
-A healthy response should report `broker: true` when OANDA is reachable and `ollama: true` when the local Ollama service is running.
+`npm run verify` runs TypeScript build and tests before any merge.
 
-## Risk rules
-- Hard stop reference: 0.8%
-- Maximum slippage: 0.1%
-- Per-trade risk budget: 0.25% of equity
-- Rolling 24h kill switch: 3%
+## Data retirement on the first restart after this update
+The server performs a **one-time permanent purge** of known exclusive virtual
+history: Strict, No Macro, Fimathe and virtual Ollama fills. The purge writes
+`logs/maintenance/cleanup.jsonl` and `data/broker-only-cleanup-v1.json`.
+If it cannot delete a locked file, it reports an error and retries on next start.
 
-No trading system can guarantee profit.
+**Always preserved:** `.env`, `data/simulator-state.json` (legacy-named but still
+contains the Shadow open position and broker Trade ID), `data/shadow-simulator-risk.json`,
+`logs/shadow-paper/`, `logs/shadow-candidates/`, `data/ollama-oanda-mirror-state.json`,
+`logs/ollama-paper/oanda-mirror.jsonl`, `data/ollama-signal-state.json`,
+`logs/history/shadow-paper-trades.jsonl`, and original mixed historical ZIP
+archives in `logs/history-inbox/`.
 
+The Ollama legacy paper state is migrated to broker-only signal state **before**
+its original virtual file is removed. Remaining shared Shadow data may contain
+historically named `SHADOW_PAPER_*` events required for OANDA attribution and
+recovery; these events are **never displayed as financial P/L**.
 
-## 24/7 research simulator through year end
-
-The server now starts a **local paper research simulator** automatically when `SIMULATOR_ENABLED=true`. It does not send broker orders.
-
-What it records on every newly closed M5 candle:
-- OANDA quote and spread
-- closed M5 + M10 indicator context
-- 10m macro SMA20 state
-- 5m Bollinger Bands (20, 2σ)
-- RSI(14)
-- volume and VMA20
-- LONG / SHORT / WAIT decision and reasons
-- Ollama review for actionable signals
-- simulated balance, open paper position, marked equity and risk-lock state
-- errors and restarts
-
-Paper-trade behavior:
-- one simulated position at a time
-- EUR/USD and GBP/USD entries only for now, because their quote currency is USD and P/L sizing is direct
-- USD/JPY is still analyzed/logged but signals are not opened until cross-currency P/L conversion is implemented
-- 0.25% risk budget per simulated trade
-- 0.8% hard stop
-- rolling 24h 3% kill switch based on marked simulator equity
-- exit on hard stop or a confirmed opposite strategy signal
-- Ollama can veto a paper entry but cannot loosen risk
-
-Fimathe concepts from the supplied training material are logged as an observation layer (Zona Neutra, Canal de Referência, 50% context, Stop Fora da Caixinha), but Fimathe entries are **not automated yet** because the exact channel-construction math is not sufficiently deterministic in the supplied transcripts. Nothing is guessed.
-
-Persistent files:
-- `logs/simulator/YYYY-MM-DD.jsonl` — every candle decision, quote, mark, skip and error
-- `logs/simulator/trades.jsonl` — paper opens/closes and P/L
-- `logs/simulator-runner.log` — process crashes/restarts
-- `data/simulator-state.json` — position, balance, last processed candles, counters
-- `data/simulator-risk.json` — rolling drawdown history
-
-Default stop date:
-`2027-01-01T00:00:00-05:00`
-
-To run only the research engine day and night on Windows, double-click:
-
-`RUN-SIMULATOR-24-7.bat`
-
-The runner verifies the project first, starts Ollama if available, runs the server, and automatically restarts the server after a crash.
-
-Simulator status:
-`http://127.0.0.1:8790/api/simulator`
-
-## Fimathe experimental paper engine (proxy v1)
-The six course lessons motivate D/W macro context, M1 channel breaks, a neutral zone and stops outside the reference box. They **do not mathematically specify how to pick the channel anchors**. This isolated engine deliberately uses the 20 previous *completed* M1 candles as a channel and requires a breakout aligned with the previous *completed* daily candle's direction. The 20-bar lookback, breakeven at +1R, 2R target and 10x cap are research assumptions, **not the creator's verified Fimathe rules**. It uses bid/ask-aware virtual fills and no broker write methods. $1,000 virtual starting balance, 0.25% risk budget, structural stop no wider than 0.8%, 3% rolling-24h loss guard. Only USD-quoted EUR_USD / GBP_USD paper entries are supported; USD_JPY remains observation-only. The existing strategies and OANDA practice mirror are untouched.
-
-Files to preserve: `data/fimathe-paper-state.json`, `data/fimathe-paper-risk.json`, `logs/fimathe-paper/YYYY-MM-DD.jsonl`, and `logs/fimathe-paper/trades.jsonl`. Never reset these silently. Rule changes require a new experiment/version. The dashboard scoreboard reads closed-trade performance separately from this experiment. Dedicated panel includes balance, open P/L, positions, and decision counts. The raw Fimathe-market logger stays unchanged.
+## No automatic Live trading
+OANDA Practice orders have broker-side hard stops, validated margin and quote
+checks. Ollama additionally uses tagged, idempotent Trade IDs, account-instrument
+collision avoidance and a separate $1,000 research risk budget; it cannot
+modify Shadow orders. No strategy guarantees profit.
