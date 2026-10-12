@@ -70,7 +70,6 @@ function App(){
   const[sim,setSim]=useState<any>(null)
   const[oandaAudit,setOandaAudit]=useState<any>(null)
   const[ollamaMirror,setOllamaMirror]=useState<any>(null)
-  const[activityIndex,setActivityIndex]=useState(0)
   const x=copy[lang]
 
   const load=async()=>{
@@ -93,15 +92,6 @@ function App(){
   }
 
   useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[])
-  useEffect(()=>{const id=setInterval(()=>setActivityIndex(v=>(v+1)%5),1800);return()=>clearInterval(id)},[])
-
-  const activityFeed=[
-    lang==='pt'?'Lendo cotacoes da OANDA...':'Reading OANDA quotes...',
-    lang==='pt'?'Calculando Bollinger, RSI e volume...':'Calculating Bollinger, RSI and volume...',
-    lang==='pt'?'Comparando macro M10 com SMA20...':'Comparing M10 macro with SMA20...',
-    lang==='pt'?'Verificando risco e drawdown...':'Checking risk and drawdown...',
-    lang==='pt'?'Aguardando o proximo candle fechado...':'Waiting for the next closed candle...'
-  ]
 
   const drawdown=useMemo(()=>{
     const n=Number(account?.drawdown24h||0)*100
@@ -321,19 +311,19 @@ function App(){
           <p>{lang==='pt'?'Ollama consulta operações fechadas do Shadow e registra alertas experimentais. Não altera nenhuma operação. OpenViking é opcional e roda localmente.':'Ollama consults completed Shadow results and logs experimental warnings. It never changes trades. OpenViking is optional and local.'}</p>
         </div><span className="locked-pill">OBSERVATION ONLY</span></div>
         <div className="shadow-grid">
-          <div><small>{lang==='pt'?'TRADES NA MEMÓRIA':'TRADES IN MEMORY'}</small><strong>{sim?.ollamaShadowMemory?.memory?.total??0}</strong></div>
-          <div><small>{lang==='pt'?'PERDAS HISTÓRICAS':'PAST LOSSES'}</small><strong>{sim?.ollamaShadowMemory?.memory?.losses??0}</strong></div>
-          <div><small>{lang==='pt'?'AVALIAÇÕES DA IA':'AI REVIEWS'}</small><strong>{sim?.ollamaShadowMemory?.decisions??0}</strong></div>
-          <div><small>{lang==='pt'?'ALERTAS DE SIMILARIDADE':'SIMILARITY WARNINGS'}</small><strong>{sim?.ollamaShadowMemory?.warnings??0}</strong></div>
+          <div><small>{lang==='pt'?'TRADES NA MEMÓRIA':'TRADES IN MEMORY'}</small><strong>{sim?.shadowMemory?.memory?.total??0}</strong></div>
+          <div><small>{lang==='pt'?'PERDAS HISTÓRICAS':'PAST LOSSES'}</small><strong>{sim?.shadowMemory?.memory?.losses??0}</strong></div>
+          <div><small>{lang==='pt'?'AVALIAÇÕES DA IA':'AI REVIEWS'}</small><strong>{sim?.shadowMemory?.decisions??0}</strong></div>
+          <div><small>{lang==='pt'?'ALERTAS DE SIMILARIDADE':'SIMILARITY WARNINGS'}</small><strong>{sim?.shadowMemory?.warnings??0}</strong></div>
         </div>
         <div className="shadow-position">
-          <small>OPENVIKING • {sim?.ollamaShadowMemory?.openViking??'OFFLINE'} | {lang==='pt'?'Falhas':'Errors'}: {sim?.ollamaShadowMemory?.errors??0}</small>
-          <b>{sim?.ollamaShadowMemory?.lastDecision?(String(sim.ollamaShadowMemory.lastDecision.symbol).replace('_','/')+' • '+sim.ollamaShadowMemory.lastDecision.decision):(lang==='pt'?'Aguardando primeira análise com memória':'Waiting for first memory review')}</b>
-          <span>{sim?.ollamaShadowMemory?.lastDecision?.reason??(lang==='pt'?'Os resultados antigos do Shadow serão consultados sem alterar os trades.':'Shadow history will be read without changing trades.')}</span>
+          <small>OPENVIKING • {sim?.shadowMemory?.openViking??'OFFLINE'} | {lang==='pt'?'Falhas':'Errors'}: {sim?.shadowMemory?.errors??0}</small>
+          <b>{sim?.shadowMemory?.lastDecision?(String(sim.shadowMemory.lastDecision.symbol).replace('_','/')+' • '+sim.shadowMemory.lastDecision.decision):(lang==='pt'?'Aguardando primeira análise com memória':'Waiting for first memory review')}</b>
+          <span>{sim?.shadowMemory?.lastDecision?.reason??(lang==='pt'?'Os resultados antigos do Shadow serão consultados sem alterar os trades.':'Shadow history will be read without changing trades.')}</span>
         </div>
         <div className="ollama-lab-feed">
           <div className="ollama-lab-feed-title"><Activity size={15}/> {lang==='pt'?'HISTÓRICO DAS AVALIAÇÕES COM MEMÓRIA':'MEMORY REVIEW HISTORY'}</div>
-          {(sim?.ollamaShadowMemory?.recent??[]).slice(0,6).map((e:any,i:number)=><div className="ollama-lab-event" key={e.at+String(i)}>
+          {(sim?.shadowMemory?.recent??[]).slice(0,6).map((e:any,i:number)=><div className="ollama-lab-event" key={e.at+String(i)}>
             <time>{new Date(e.at).toLocaleTimeString(lang==='pt'?'pt-BR':'en-US')}</time>
             <b>{e.decision} • {String(e.symbol).replace('_','/')}</b>
             <span>{e.compare==='SIMILAR_SHADOW_LOSS_EXISTS'?(lang==='pt'?'Atenção: perdas parecidas no histórico. ':'Similar Shadow loss. '):''}{e.reason}</span>
@@ -353,8 +343,8 @@ function App(){
         <div className="ollama-lab-status">
           <span className={health?.ollama?'pulse-dot':'offline-dot'}/>
           <b>{health?.ollama?(lang==='pt'?'Ollama conectado':'Ollama connected'):(lang==='pt'?'Ollama desconectado':'Ollama disconnected')}</b>
-          <span>{lang==='pt'?'Motor:':'Engine:'} {sim?.ollamaPaperExperiment?.status??'WAITING'}</span>
-          <span>{lang==='pt'?'Última análise:':'Last analysis:'} {sim?.ollamaPaperExperiment?.lastReviewedAt?new Date(sim.ollamaPaperExperiment.lastReviewedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):(lang==='pt'?'aguardando':'waiting')}</span>
+          <span>{lang==='pt'?'Motor:':'Engine:'} {sim?.ollamaAi?.status??'WAITING'}</span>
+          <span>{lang==='pt'?'Última análise:':'Last analysis:'} {sim?.ollamaAi?.lastReviewedAt?new Date(sim.ollamaAi.lastReviewedAt).toLocaleString(lang==='pt'?'pt-BR':'en-US'):(lang==='pt'?'aguardando':'waiting')}</span>
         </div>
         <div className="ollama-oanda-official">
           <div className="ollama-oanda-head">
@@ -393,68 +383,57 @@ function App(){
              :'Old virtual positions are never opened retroactively. New eligible Ollama signals are submitted only to OANDA Practice.'}</p>
         </div>
         <div className="ollama-diagnostics">
-          <OllamaChartLab data={sim?.ollamaPaperExperiment?.brokerLearning} lang={lang}/>
+          <OllamaChartLab data={sim?.brokerLearning} lang={lang}/>
           <div className="ollama-research-card">
             <small>{lang==='pt'?'SETUP OBJETIVO · CANDLES OANDA':'OBJECTIVE SETUP · OANDA CANDLES'}</small>
-            <b>{sim?.ollamaPaperExperiment?.lastSetup?.direction==='NONE'?(lang==='pt'?'SEM CONFIRMAÇÃO':'NO CONFIRMED SETUP'):(sim?.ollamaPaperExperiment?.lastSetup?.direction??'WAITING')}</b>
+            <b>{sim?.ollamaAi?.lastSetup?.direction==='NONE'?(lang==='pt'?'SEM CONFIRMAÇÃO':'NO CONFIRMED SETUP'):(sim?.ollamaAi?.lastSetup?.direction??'WAITING')}</b>
             <div className="ollama-research-values">
-              <span>{lang==='pt'?'CRITÉRIOS':'CHECKS'} <strong>{sim?.ollamaPaperExperiment?.lastSetup?.score??0} / 5</strong></span>
-              <span>RSI <strong>{sim?.ollamaPaperExperiment?.lastSetup?.rsiZone??'—'}</strong></span>
+              <span>{lang==='pt'?'CRITÉRIOS':'CHECKS'} <strong>{sim?.ollamaAi?.lastSetup?.score??0} / 5</strong></span>
+              <span>RSI <strong>{sim?.ollamaAi?.lastSetup?.rsiZone??'—'}</strong></span>
             </div>
-            <p>{sim?.ollamaPaperExperiment?.lastSetup?.missing?.length
-              ?(lang==='pt'?'Confirmações faltando: ':'Missing confirmations: ')+sim.ollamaPaperExperiment.lastSetup.missing.join(' · ')
+            <p>{sim?.ollamaAi?.lastSetup?.missing?.length
+              ?(lang==='pt'?'Confirmações faltando: ':'Missing confirmations: ')+sim.ollamaAi.lastSetup.missing.join(' · ')
               :(lang==='pt'?'Avaliando novos candles fechados da OANDA.':'Evaluating new completed OANDA candles.')}</p>
             <p>{lang==='pt'?'Scanner independente: envia somente novos sinais qualificados ao executor OANDA Practice e nunca altera o Shadow 3/4.':'Independent scanner sends only qualified new signals to the Practice executor; Shadow 3/4 is untouched.'}</p>
-          </div>
-          <div className="ollama-research-card">
-            <small>{lang==='pt'?'WAITs INVESTIGADOS · 3 CANDLES':'WAIT REVIEWS · NEXT 3 CANDLES'}</small>
-            <b>{sim?.ollamaPaperExperiment?.waitResearch?.reviewed??0} {lang==='pt'?'revisados':'reviewed'}</b>
-            <div className="ollama-research-values">
-              <span>{lang==='pt'?'SETUPS EM WAIT':'SETUPS WITH WAIT'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.observed??0}</strong></span>
-              <span>{lang==='pt'?'MOVIMENTO FAVORÁVEL':'FAVORABLE MOVEMENT'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.favorable??0}</strong></span>
-              <span>{lang==='pt'?'EM AVALIAÇÃO':'PENDING'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.pending??0}</strong></span>
-              <span>{lang==='pt'?'ÚLTIMO RESULTADO':'LATEST REVIEW'} <strong>{sim?.ollamaPaperExperiment?.waitResearch?.recent?.[0]?.netMovementPips!=null?sim.ollamaPaperExperiment.waitResearch.recent[0].netMovementPips+' pips':'—'}</strong></span>
-            </div>
-            <p>{lang==='pt'?'Mede movimento hipotético após WAIT descontando spread e slippage. Não são trades nem lucro realizado.':'Hypothetical movement after WAIT minus estimated spread/slippage. Not executed trades or realized profit.'}</p>
           </div>
         </div>
         <div className="ollama-research-grid">
           <div className="ollama-research-card">
             <small>{lang==='pt'?'CONDIÇÕES DE MERCADO · OANDA':'MARKET CONDITIONS · OANDA'}</small>
-            <b>{sim?.ollamaPaperExperiment?.lastMarket?.symbol?String(sim.ollamaPaperExperiment.lastMarket.symbol).replace('_','/'):'—'}</b>
+            <b>{sim?.ollamaAi?.lastMarket?.symbol?String(sim.ollamaAi.lastMarket.symbol).replace('_','/'):'—'}</b>
             <div className="ollama-research-values">
-              <span>RSI 14 <strong>{sim?.ollamaPaperExperiment?.lastMarket?.rsi14??'—'}</strong></span>
-              <span>MACRO <strong>{sim?.ollamaPaperExperiment?.lastMarket?.macroTrend??'—'}</strong></span>
-              <span>BB 20/2 <strong>{sim?.ollamaPaperExperiment?.lastMarket?.bbPosition??'—'}</strong></span>
-              <span>VOLUME <strong>{sim?.ollamaPaperExperiment?.lastMarket?.volumeRatio!=null?Number(sim.ollamaPaperExperiment.lastMarket.volumeRatio).toFixed(2)+'×':'—'}</strong></span>
-              <span>SPREAD <strong>{sim?.ollamaPaperExperiment?.lastMarket?.spreadPips!=null?sim.ollamaPaperExperiment.lastMarket.spreadPips+' pips':'—'}</strong></span>
+              <span>RSI 14 <strong>{sim?.ollamaAi?.lastMarket?.rsi14??'—'}</strong></span>
+              <span>MACRO <strong>{sim?.ollamaAi?.lastMarket?.macroTrend??'—'}</strong></span>
+              <span>BB 20/2 <strong>{sim?.ollamaAi?.lastMarket?.bbPosition??'—'}</strong></span>
+              <span>VOLUME <strong>{sim?.ollamaAi?.lastMarket?.volumeRatio!=null?Number(sim.ollamaAi.lastMarket.volumeRatio).toFixed(2)+'×':'—'}</strong></span>
+              <span>SPREAD <strong>{sim?.ollamaAi?.lastMarket?.spreadPips!=null?sim.ollamaAi.lastMarket.spreadPips+' pips':'—'}</strong></span>
             </div>
             <p>{lang==='pt'?'Indicadores derivados de candles fechados. Não são previsão de lucro.':'Indicators calculated from completed candles, not a profit forecast.'}</p>
           </div>
           <div className="ollama-research-card">
             <small>{lang==='pt'?'APRENDIZADO · TRADES CONFIRMADOS':'LEARNING · VERIFIED OANDA TRADES'}</small>
-            <b>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.trades??0} {lang==='pt'?'trades Shadow ligados':'linked Shadow trades'}</b>
+            <b>{sim?.brokerLearning?.summary?.trades??0} {lang==='pt'?'trades Shadow ligados':'linked Shadow trades'}</b>
             <div className="ollama-research-values">
-              <span>W / L <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.wins??0} / {sim?.ollamaPaperExperiment?.brokerLearning?.summary?.losses??0}</strong></span>
-              <span>OANDA P/L <strong>{signedMoney(sim?.ollamaPaperExperiment?.brokerLearning?.summary?.netPL??0)}</strong></span>
-              <span>{lang==='pt'?'PADRÕES AMOSTRADOS':'SAMPLED PATTERNS'} <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.featureSamples??0}</strong></span>
-              <span>{lang==='pt'?'STATUS':'STATUS'} <strong>{sim?.ollamaPaperExperiment?.brokerLearning?.status??'WAITING'}</strong></span>
+              <span>W / L <strong>{sim?.brokerLearning?.summary?.wins??0} / {sim?.brokerLearning?.summary?.losses??0}</strong></span>
+              <span>OANDA P/L <strong>{signedMoney(sim?.brokerLearning?.summary?.netPL??0)}</strong></span>
+              <span>{lang==='pt'?'PADRÕES AMOSTRADOS':'SAMPLED PATTERNS'} <strong>{sim?.brokerLearning?.summary?.featureSamples??0}</strong></span>
+              <span>{lang==='pt'?'STATUS':'STATUS'} <strong>{sim?.brokerLearning?.status??'WAITING'}</strong></span>
             </div>
             <div className="ollama-condition-list">
               <small>{lang==='pt'?'CONDIÇÕES OBSERVADAS NAS VITÓRIAS':'OBSERVED WINNING CONDITIONS'} · {lang==='pt'?'mínimo 3 exemplos':'minimum 3 examples'}</small>
-              {(sim?.ollamaPaperExperiment?.brokerLearning?.summary?.observedWinningConditions??[]).length
-                ?(sim.ollamaPaperExperiment.brokerLearning.summary.observedWinningConditions as Array<{condition:string;wins:number;losses:number}>).map((c)=>
+              {(sim?.brokerLearning?.summary?.observedWinningConditions??[]).length
+                ?(sim.brokerLearning.summary.observedWinningConditions as Array<{condition:string;wins:number;losses:number}>).map((c)=>
                   <span key={c.condition}>{c.condition.replaceAll('_',' ')} · W {c.wins} / L {c.losses}</span>)
                 :<span>{lang==='pt'?'Sem amostra suficiente para mostrar um padrão confiável.':'Not enough confirmed examples to report a pattern.'}</span>}
             </div>
-            <p>{sim?.ollamaPaperExperiment?.brokerLearning?.summary?.trades
+            <p>{sim?.brokerLearning?.summary?.trades
               ?(lang==='pt'?'Só resultados fechados pela OANDA e vinculados ao ID de espelho do Shadow.':'OANDA-confirmed closures linked to Shadow mirror IDs only.')
               :(lang==='pt'?'Ainda sem amostra vinculada; dados locais não são considerados lucro real.':'No linked broker sample yet; local profits are not treated as real.')}</p>
-            {sim?.ollamaPaperExperiment?.brokerLearning?.error&&<p className="ollama-research-error">{String(sim.ollamaPaperExperiment.brokerLearning.error)}</p>}
+            {sim?.brokerLearning?.error&&<p className="ollama-research-error">{String(sim.brokerLearning.error)}</p>}
           </div>
           <div className="ollama-research-card ollama-comparison">
             <small>{lang==='pt'?'COMPARAÇÃO · MESMO PERÍODO':'COMPARISON · SAME TIME WINDOW'}</small>
-            <div className="ollama-compare-line"><span>Shadow • OANDA</span><b>{signedMoney(sim?.ollamaPaperExperiment?.comparison?.brokerShadow?.netPL??0)}</b><em>{sim?.ollamaPaperExperiment?.comparison?.brokerShadow?.trades??0} {lang==='pt'?'fechados':'closed'}</em></div>
+            <div className="ollama-compare-line"><span>Shadow • OANDA</span><b>{shadowRealized!=null?signedMoney(shadowRealized):'—'}</b><em>{shadowLearning?.trades??'—'} {lang==='pt'?'fechados vinculados':'linked closures'}</em></div>
             <div className="ollama-compare-line"><span>Ollama • OANDA</span><b>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</b><em>{ollamaMirror?.closedTrades??'—'} {lang==='pt'?'fechados':'closed'}</em></div>
             <p>{lang==='pt'?'P/L realizado confirmado pela OANDA; métricas de estratégia e tamanho de posição não são comparáveis diretamente.':'OANDA-confirmed realized P/L; strategy capital and position sizing are not directly comparable.'}</p>
           </div>
@@ -467,10 +446,10 @@ function App(){
           <div><small>{lang==='pt'?'EM ABERTO • OANDA':'OPEN P/L • OANDA'}</small><strong>{ollamaMirror?.brokerOpenPL!=null?signedMoney(ollamaMirror.brokerOpenPL):'—'}</strong></div>
           <div><small>{lang==='pt'?'TRADE ID OANDA':'OANDA TRADE ID'}</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
           <div><small>{lang==='pt'?'TRADES FECHADOS • OANDA':'CLOSED TRADES • OANDA'}</small><strong>{ollamaMirror?.closedTrades??'—'}</strong></div>
-          <div><small>{lang==='pt'?'ANÁLISES DA IA':'AI REVIEWS'}</small><strong>{sim?.ollamaPaperExperiment?.decisions??'—'}</strong></div>
-          <div><small>{lang==='pt'?'SINAIS GERADOS':'SIGNALS GENERATED'}</small><strong>{sim?.ollamaPaperExperiment?.signals??'—'}</strong></div>
+          <div><small>{lang==='pt'?'ANÁLISES DA IA':'AI REVIEWS'}</small><strong>{sim?.ollamaAi?.decisions??'—'}</strong></div>
+          <div><small>{lang==='pt'?'SINAIS GERADOS':'SIGNALS GENERATED'}</small><strong>{sim?.ollamaAi?.signals??'—'}</strong></div>
           <div><small>{lang==='pt'?'ESTADO DA OANDA':'BROKER STATUS'}</small><strong className="ollama-oanda-status-value">{ollamaOandaStatus(ollamaMirror?.status,lang)}</strong></div>
-          <div><small>{lang==='pt'?'FALHAS DA IA':'MODEL ERRORS'}</small><strong>{sim?.ollamaPaperExperiment?.errors??'—'}</strong></div>
+          <div><small>{lang==='pt'?'FALHAS DA IA':'MODEL ERRORS'}</small><strong>{sim?.ollamaAi?.errors??'—'}</strong></div>
         </div>
         <div className="shadow-position">
           <small>{lang==='pt'?'POSIÇÃO OLLAMA • CONFIRMADA NA OANDA':'OLLAMA POSITION • OANDA VERIFIED'}</small>
@@ -483,20 +462,20 @@ function App(){
         </div>
         <div className="ollama-lab-decision">
           <small>{lang==='pt'?'ÚLTIMA DECISÃO DA IA':'LATEST AI DECISION'}</small>
-          <b>{sim?.ollamaPaperExperiment?.lastDecision?.decision==='LONG'?'BUY':sim?.ollamaPaperExperiment?.lastDecision?.decision==='SHORT'?'SELL':sim?.ollamaPaperExperiment?.lastDecision?.decision??'WAITING'} {sim?.ollamaPaperExperiment?.lastDecision?.symbol?'• '+String(sim.ollamaPaperExperiment.lastDecision.symbol).replace('_','/'):''}</b>
-          <span>{sim?.ollamaPaperExperiment?.lastDecision?.reason??(lang==='pt'?'Aguardando a primeira análise do Ollama.':'Awaiting first Ollama review.')}</span>
-          <small>{sim?.ollamaPaperExperiment?.lastDecision?.confidence!=null?(lang==='pt'?'Confiança: ':'Confidence: ')+(Number(sim.ollamaPaperExperiment.lastDecision.confidence)*100).toFixed(0)+'%':''}</small>
+          <b>{sim?.ollamaAi?.lastDecision?.decision==='LONG'?'BUY':sim?.ollamaAi?.lastDecision?.decision==='SHORT'?'SELL':sim?.ollamaAi?.lastDecision?.decision??'WAITING'} {sim?.ollamaAi?.lastDecision?.symbol?'• '+String(sim.ollamaAi.lastDecision.symbol).replace('_','/'):''}</b>
+          <span>{sim?.ollamaAi?.lastDecision?.reason??(lang==='pt'?'Aguardando a primeira análise do Ollama.':'Awaiting first Ollama review.')}</span>
+          <small>{sim?.ollamaAi?.lastDecision?.confidence!=null?(lang==='pt'?'Confiança: ':'Confidence: ')+(Number(sim.ollamaAi.lastDecision.confidence)*100).toFixed(0)+'%':''}</small>
         </div>
         <div className="ollama-lab-feed">
           <div className="ollama-lab-feed-title"><Activity size={15}/> {lang==='pt'?'ATIVIDADE REAL DA IA':'REAL AI ACTIVITY'} <small>{lang==='pt'?'Últimos eventos registrados':'Latest recorded events'}</small></div>
-          {(sim?.ollamaPaperExperiment?.events??[]).slice(0,10).map((e:any,i:number)=>
+          {(sim?.ollamaAi?.events??[]).slice(0,10).map((e:any,i:number)=>
             <div className="ollama-lab-event" key={String(e.at)+String(i)}>
               <time>{new Date(e.at).toLocaleTimeString(lang==='pt'?'pt-BR':'en-US')}</time>
               <b>{String(e.event||'').replace('OLLAMA_LAB_','').replaceAll('_',' ')}</b>
               <span>{e.symbol?String(e.symbol).replace('_','/')+' • ':''}{e.decision?e.decision+' • ':''}{e.reason||e.pnl||''}</span>
             </div>
           )}
-          {!(sim?.ollamaPaperExperiment?.events?.length)&&<p>{lang==='pt'?'Ainda sem eventos. Os registros aparecerão quando o motor iniciar.':'No events yet. Activity will appear when the engine starts.'}</p>}
+          {!(sim?.ollamaAi?.events?.length)&&<p>{lang==='pt'?'Ainda sem eventos. Os registros aparecerão quando o motor iniciar.':'No events yet. Activity will appear when the engine starts.'}</p>}
         </div>
       </section>
 
