@@ -8,6 +8,7 @@ import{env,BROKER_MODE,OANDA_DEMO_MIRROR_ENABLED}from'./config.js'
 import{ShadowOandaEngine}from'./simulator/ShadowOandaEngine.js'
 import{OllamaPracticeMirror}from'./simulator/OllamaPracticeMirror.js'
 import{isTagged}from'./broker/OllamaPracticeBroker.js'
+import{purgeLegacyResearch}from'./maintenance/RemoveLegacyResearch.js'
 
 const app=express(),broker=new OandaReadOnly(),risk=new RiskManager(),engine=new ShadowOandaEngine(broker),
  ollamaMirror=new OllamaPracticeMirror(()=>engine.ollamaSnapshot(),()=>engine.shadowSnapshot())
@@ -119,7 +120,11 @@ app.post('/api/validate-fill',(req,res)=>{
 })
 
 app.listen(env.PORT,'127.0.0.1',()=>{
- console.log(`ProfitMind Forex http://127.0.0.1:${env.PORT}`)
+ console.log(`ProfitMind Forex OANDA Practice http://127.0.0.1:${env.PORT}`)
+ try{
+  const cleanup=purgeLegacyResearch()
+  console.log('[BROKER_ONLY_CLEANUP]',JSON.stringify(cleanup))
+ }catch(e){console.error('[BROKER_ONLY_CLEANUP_ERROR]',String(e))}
  engine.start()
  ollamaMirror.start()
 })
