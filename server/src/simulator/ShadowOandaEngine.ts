@@ -261,7 +261,7 @@ export class ShadowOandaEngine{
   ollamaAi:{status:ai.status,decisions:ai.decisions,signals:ai.signals,errors:ai.errors,
    lastReviewedAt:ai.lastReviewedAt,lastDecision:ai.lastDecision,
    lastSetup:ai.lastSetup,lastMarket:ai.lastMarket,events:ai.events,
-   lastBrokerSignal:ai.lastBrokerSignal,waitResearch:ai.waitResearch},
+   lastBrokerSignal:ai.lastBrokerSignal},
   brokerLearning:ai.brokerLearning,
  }}
  // Read only for shadow/Ollama owner coordination; local values are NEVER shown as broker P/L.
