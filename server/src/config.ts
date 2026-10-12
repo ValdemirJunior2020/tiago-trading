@@ -35,3 +35,6 @@ export const BROKER_MODE = env.OANDA_REST_BASE_URL.replace(/\/$/,'')==='https://
 export const OANDA_DEMO_MIRROR_ENABLED = env.OANDA_DEMO_MIRROR_ENABLED.toLowerCase()==='true' && BROKER_MODE==='DEMO'
 
 export const SHADOW_OANDA_PAIRS = env.TRADE_PAIRS.split(',').map(x=>x.trim()).filter(Boolean)
+
+// Do not initialize this service against OANDA Live without a separate, explicit implementation.
+if(BROKER_MODE!=='DEMO')throw new Error('Only OANDA Practice is supported; LIVE endpoint is disabled')
