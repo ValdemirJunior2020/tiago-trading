@@ -5,7 +5,7 @@ import {Decimal} from 'decimal.js'
 import {env} from '../config.js'
 import {OllamaPracticeBroker,ollamaClientId,isTagged,OLLAMA_TRADE_TAG} from '../broker/OllamaPracticeBroker.js'
 import type{OpenSpec}from '../broker/OllamaPracticeBroker.js'
-import type{BrokerSignal}from './OllamaPaperEngine.js'
+import type{BrokerSignal}from './OllamaSignalEngine.js'
 import{oandaForexSession,isOandaForexSessionOpen}from '../broker/OandaMarketHours.js'
 
 export type PaperView={lastBrokerSignal?:BrokerSignal|null}
