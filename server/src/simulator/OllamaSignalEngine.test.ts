@@ -105,6 +105,34 @@ describe('independent Ollama broker-only signals',()=>{
   expect(result.events.filter((x:any)=>x.event==='OLLAMA_LAB_MARKET_CLOSED')).toHaveLength(1)
   expect(result.events.some((x:any)=>x.event==='OLLAMA_LAB_SKIP')).toBe(false)
  })
+ it('migrates historical Ollama state without retaining paper balances or losing broker signal ID',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'ollama-signal-migration-'));dirs.push(dir)
+  const saved={
+   version:'ollama-independent-paper-v1',startedAt:TEST_NOW.toISOString(),
+   lastBrokerSignal:{key:'EUR_USD:2026-10-11T00:00:00Z:long',action:'OPEN',symbol:'EUR_USD',
+    direction:'long',units:'1000',entry:'1.12',stop:'1.11',target:'1.14',
+    at:TEST_NOW.toISOString(),candleTime:TEST_NOW.toISOString(),confidence:.9},
+   lastCandle:{EUR_USD:'2026-10-11T00:00:00Z'},events:[{event:'OLLAMA_LAB_PAPER_CLOSE'},
+    {event:'OLLAMA_OANDA_SIGNAL',at:TEST_NOW.toISOString()}],
+   balance:'1550',realizedPL:'550',openPnl:'38',position:{symbol:'EUR_USD'},stats:{netProfit:'550'},
+   decisions:486,signals:2,errors:7
+  }
+  const old=join(dir,'ollama-paper-state.json')
+  writeFileSync(old,JSON.stringify(saved))
+  const broker={quote:async()=>quote(),candles:async()=>bars(30,.00001)}
+  const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),now:()=>TEST_NOW})
+  const cleanFile=join(dir,'ollama-signal-state.json')
+  expect(existsSync(cleanFile)).toBe(true)
+  expect(existsSync(old)).toBe(false)
+  const contents=readFileSync(cleanFile,'utf8')
+  expect(contents).not.toContain('"balance"')
+  expect(contents).not.toContain('"realizedPL"')
+  expect(contents).not.toContain('"position"')
+  expect(contents).not.toContain('PAPER_CLOSE')
+  expect(engine.snapshot().lastBrokerSignal?.key).toBe(saved.lastBrokerSignal.key)
+  expect(engine.snapshot().decisions).toBe(486)
+  expect(engine.snapshot().errors).toBe(7)
+ })
  it('logs model exceptions rather than opening positions',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'ollama-error-test-'));dirs.push(dir)
   const broker={quote:async()=>quote(),candles:async(_s:string,t:string)=>bars(t==='M5'?30:25,0.00001)}
