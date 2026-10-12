@@ -1,0 +1,116 @@
+import {describe,it,expect,afterEach,vi} from 'vitest'
+import {mkdtempSync,rmSync,existsSync,readFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {OllamaSignalEngine,parseAiLabDecision,queryIndependentOllama} from './OllamaSignalEngine.js'
+const dirs:string[]=[]
+const TEST_NOW=new Date('2026-10-09T19:30:00.000Z') // Fri 15:30 EDT, live market open
+const bars=(count:number,step:number)=>Array.from({length:count},(_,i)=>{
+ const close=1.1+i*step
+ return {time:new Date(Date.UTC(2026,9,8,10,i*5)).toISOString(),open:close-step,high:close+0.0002,low:close-0.0002,close,volume:100+i}
+})
+const quote=(bid='1.10100',ask='1.10115')=>({symbol:'EUR_USD',bid,ask,mid:String((Number(bid)+Number(ask))/2),timestamp:TEST_NOW.toISOString()})
+function setup(decision:{decision:'LONG'|'SHORT'|'WAIT'|'CLOSE';confidence:number;reason:string}={decision:'LONG',confidence:0.91,reason:'Price action from completed OANDA candles'}){
+ const dir=mkdtempSync(join(tmpdir(),'ollama-signal-test-'));dirs.push(dir)
+ let q=quote(),m5=bars(30,0.00001),reads=0
+ const broker={quote:async()=>q,candles:async(_s:string,tf:string)=>{reads++;return tf==='M5'?m5:bars(25,0.00001)}}
+ const calls:{count:number}={count:0}
+ const decide=async()=>{calls.count++;return decision}
+ const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),decide,now:()=>TEST_NOW})
+ return{engine,dir,calls,reads:()=>reads,setQuote:(v:ReturnType<typeof quote>)=>{q=v},newCandle:()=>{m5=[...m5,bars(31,0.00001).at(-1)!]}}
+}
+afterEach(()=>{vi.unstubAllGlobals();for(const d of dirs.splice(0))rmSync(d,{recursive:true,force:true})})
+describe('Ollama JSON response safeguards',()=>{
+ const market=()=>({symbol:'EUR_USD',quote:quote(),m5:bars(30,.00001),m10:bars(25,.00001),
+  indicators:{rsi14:35,bbPosition:'INSIDE',volumeRatio:.9,macroTrend:'DOWN',close:1.1,macroSma20:1.1,macroClose:1.09},
+  setup:{rsiZone:'NEUTRAL',direction:'NONE',score:3,maxScore:5,qualified:false,kind:'NO_QUALIFIED_SETUP',
+   source:'COMPLETED_OANDA_CANDLES',rsi14:35,spreadPips:1,checks:[],missing:[],details:''},
+  brokerLessons:[]}) as any
+ it('retries truncated JSON, uses constrained output and accepts a valid response',async()=>{
+  let count=0
+  vi.stubGlobal('fetch',vi.fn(async(_url:string,opts:any)=>{
+   const request=JSON.parse(opts.body)
+   expect(request.format.type).toBe('object')
+   expect(request.format.properties.reason.maxLength).toBe(250)
+   count++
+   return {ok:true,json:async()=>({message:{content:count===1?
+    '{"decision":"BUY","confidence":0.85,"reason":"broken':
+    '{"decision":"WAIT","confidence":0.6,"reason":"RSI neutral; no trend confirmation"}'}})}
+  }))
+  const decision=await queryIndependentOllama(market())
+  expect(count).toBe(2)
+  expect(decision.decision).toBe('WAIT')
+ })
+ it('retries invalid oversized reason and rejects persistent malformed output',async()=>{
+  let count=0
+  vi.stubGlobal('fetch',vi.fn(async()=>{count++;return{ok:true,json:async()=>({
+   message:{content:JSON.stringify({decision:'BUY',confidence:.96,reason:'x'.repeat(500)})}
+  })}}))
+  await expect(queryIndependentOllama(market())).rejects.toThrow('decision rejected after retries')
+  expect(count).toBe(3)
+ })
+
+})
+
+describe('independent Ollama broker-only signals',()=>{
+ it('rejects invalid decisions and confidence',()=>{
+  expect(()=>parseAiLabDecision({decision:'HOLD',confidence:1,reason:'invalid'})).toThrow()
+  expect(parseAiLabDecision({decision:'BUY',confidence:.9,reason:'verified candles'}).decision).toBe('LONG')
+  expect(parseAiLabDecision({decision:'SELL',confidence:.9,reason:'verified candles'}).decision).toBe('SHORT')
+  expect(()=>parseAiLabDecision({decision:'LONG',confidence:2,reason:'invalid'})).toThrow()
+  expect(parseAiLabDecision({decision:'WAIT',confidence:0.5,reason:'no setup'}).decision).toBe('WAIT')
+ })
+ it('produces one direct broker signal per completed candle, with NO virtual position or virtual fill',async()=>{
+  const {engine,dir,calls}=setup()
+  await engine.process('EUR_USD');await engine.process('EUR_USD')
+  expect(calls.count).toBe(1)
+  const state=engine.snapshot()
+  expect(state.executionMode).toBe('OANDA_PRACTICE_ONLY')
+  expect(state.executionMode).toBe('OANDA_PRACTICE_ONLY')
+  expect(state.lastBrokerSignal?.symbol).toBe('EUR_USD')
+  expect(state.lastBrokerSignal?.action).toBe('OPEN')
+  expect(Number(state.lastBrokerSignal?.units)).toBeGreaterThan(0)
+  expect(existsSync(join(dir,'ollama-signal-state.json'))).toBe(true)
+  const trades=readFileSync(join(dir,'logs','signals.jsonl'),'utf8')
+  expect(trades).toContain('OLLAMA_OANDA_SIGNAL')
+  expect(trades).not.toContain('OLLAMA_LAB_PAPER_OPEN')
+  expect(existsSync(join(dir,'simulator-state.json'))).toBe(false)
+  expect(existsSync(join(dir,'shadow-simulator-risk.json'))).toBe(false)
+ })
+ it('ignores low confidence, and never trades unsupported quote-currency pairs',async()=>{
+  const {engine}=setup({decision:'SHORT',confidence:0.55,reason:'Low conviction'})
+  await engine.process('EUR_USD');await engine.process('USD_JPY')
+ })
+ it('does not perform any virtual stop or claim virtual realized P/L when OANDA quote moves',async()=>{
+  const {engine,setQuote}=setup()
+  await engine.process('EUR_USD')
+  const intent=engine.snapshot().lastBrokerSignal
+  expect(intent?.stop).toBeTruthy()
+  setQuote(quote(String(Number(intent!.stop)-0.0002),String(Number(intent!.stop)+0.0001)))
+  await engine.process('EUR_USD')
+  expect(engine.snapshot().lastBrokerSignal?.key).toBe(intent?.key)
+ })
+ it('does not generate market signals or repeated stale-quote skips after Friday market close',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'ollama-market-closed-'));dirs.push(dir)
+  let quotes=0,decisions=0
+  const broker={quote:async()=>{quotes++;return quote()},candles:async()=>bars(30,.00001)}
+  const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),
+   now:()=>new Date('2026-10-09T21:11:00.000Z'),decide:async()=>{decisions++;return{decision:'LONG' as const,confidence:.99,reason:'should not execute'}}})
+  await engine.process('EUR_USD');await engine.process('GBP_USD');await engine.process('EUR_USD')
+  expect(quotes).toBe(0);expect(decisions).toBe(0)
+  const result=engine.snapshot()
+  expect(result.status).toBe('MARKET_CLOSED')
+  expect(result.lastBrokerSignal).toBeNull()
+  expect(result.errors).toBe(0)
+  expect(result.events.filter((x:any)=>x.event==='OLLAMA_LAB_MARKET_CLOSED')).toHaveLength(1)
+  expect(result.events.some((x:any)=>x.event==='OLLAMA_LAB_SKIP')).toBe(false)
+ })
+ it('logs model exceptions rather than opening positions',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'ollama-error-test-'));dirs.push(dir)
+  const broker={quote:async()=>quote(),candles:async(_s:string,t:string)=>bars(t==='M5'?30:25,0.00001)}
+  const engine=new OllamaSignalEngine(broker as any,{baseDir:dir,logDir:join(dir,'logs'),now:()=>TEST_NOW,decide:async()=>{throw Error('model offline')}})
+  await engine.process('EUR_USD')
+  expect(engine.snapshot().status).toBe('ERROR')
+  expect(engine.snapshot().errors).toBe(1)
+ })
+})
