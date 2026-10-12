@@ -1,5 +1,4 @@
-import{OllamaPaperEngine}from'./OllamaPaperEngine.js'
-import{ShadowMemoryResearch}from'./ShadowMemoryResearch.js'
+import{OllamaSignalEngine}from'./OllamaSignalEngine.js'
 import{Decimal}from'decimal.js'
 import{existsSync,mkdirSync,readFileSync,renameSync,writeFileSync}from'node:fs'
 import{resolve,dirname}from'node:path'
@@ -81,13 +80,10 @@ export class ShadowOandaEngine{
  private busy=false
  private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
  private shadowRecoveryChecked=false
- private ollamaPaper:OllamaPaperEngine
- private shadowMemoryResearch:ShadowMemoryResearch
- private memoryTick=0
+ private ollamaPaper:OllamaSignalEngine
  constructor(private broker:OandaReadOnly){
   this.load()
-  this.ollamaPaper=new OllamaPaperEngine(broker)
-  this.shadowMemoryResearch=new ShadowMemoryResearch(broker)
+  this.ollamaPaper=new OllamaSignalEngine(broker)
  }
 
  private load(){
@@ -250,7 +246,6 @@ export class ShadowOandaEngine{
  start(){
   logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SHADOW_OANDA_PAIRS,demoMirrorEnabled:OANDA_DEMO_MIRROR_ENABLED})
   this.ollamaPaper.start()
-  void this.shadowMemoryResearch.refresh().catch(()=>{})
   void this.tick()
   this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SHADOW_OANDA_POLL_MS))
  }
@@ -268,7 +263,6 @@ export class ShadowOandaEngine{
    lastSetup:ai.lastSetup,lastMarket:ai.lastMarket,events:ai.events,
    lastBrokerSignal:ai.lastBrokerSignal,waitResearch:ai.waitResearch},
   brokerLearning:ai.brokerLearning,
-  shadowMemory:this.shadowMemoryResearch.snapshot()
  }}
  // Read only for shadow/Ollama owner coordination; local values are NEVER shown as broker P/L.
  shadowSnapshot(){return{position:this.state.shadowExperiment.position,
@@ -512,14 +506,12 @@ export class ShadowOandaEngine{
   this.busy=true
   try{
    await this.ensureBalance()
-   if(++this.memoryTick%60===0)await this.shadowMemoryResearch.refresh().catch(()=>{})
    await this.reconcilePendingShadowMirrorClose()
    await this.manageShadowOpen()
    for(const symbol of SHADOW_OANDA_PAIRS){
     try{await this.processSymbol(symbol)}
     catch(e){logShadowTrade({event:'SHADOW_SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
     await this.ollamaPaper.process(symbol)
-    await this.shadowMemoryResearch.process(symbol)
    }
    this.save()
   }catch(e){
