@@ -70,7 +70,6 @@ function App(){
   const[sim,setSim]=useState<any>(null)
   const[oandaAudit,setOandaAudit]=useState<any>(null)
   const[ollamaMirror,setOllamaMirror]=useState<any>(null)
-  const[notify,setNotify]=useState(false)
   const[activityIndex,setActivityIndex]=useState(0)
   const x=copy[lang]
 
@@ -81,12 +80,12 @@ function App(){
         fetch('http://127.0.0.1:8790/health').then(r=>r.json()).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/account').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/positions').then(r=>r.ok?r.json():[]).catch(()=>[]),
-        fetch('http://127.0.0.1:8790/api/simulator').then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch('http://127.0.0.1:8790/api/engine').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/oanda-audit').then(r=>r.ok?r.json():null).catch(()=>null),
         fetch('http://127.0.0.1:8790/api/ollama-mirror').then(r=>r.ok?r.json():null).catch(()=>null),
         ...PAIRS.map(pair=>fetch(`http://127.0.0.1:8790/api/quote/${pair}`).then(r=>r.ok?r.json():null).catch(()=>null))
       ])
-      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm?.state||null);setOandaAudit(audit);setOllamaMirror(mirror)
+      setHealth(h);setAccount(a);setPositions(Array.isArray(p)?p:[]);setSim(sm||null);setOandaAudit(audit);setOllamaMirror(mirror)
       const next:Record<string,Quote>={}
       qs.forEach((q:any)=>{if(q?.symbol)next[q.symbol]=q})
       setQuotes(next)
@@ -95,17 +94,6 @@ function App(){
 
   useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id)},[])
   useEffect(()=>{const id=setInterval(()=>setActivityIndex(v=>(v+1)%5),1800);return()=>clearInterval(id)},[])
-  useEffect(()=>{
-    if(!notify||!sim?.lastSignal||typeof Notification==='undefined'||Notification.permission!=='granted')return
-    const key='tiago-last-notified-signal'
-    const id=String(sim.lastSignal.at||'')
-    if(!id||localStorage.getItem(key)===id)return
-    localStorage.setItem(key,id)
-    const d=sim.lastSignal
-    new Notification(`Tiago ${d.signal?.decision||'SIGNAL'} • ${String(d.symbol||'').replace('_','/')}`,{
-      body:(d.signal?.reasons||[]).join(' • ')||'Novo sinal do simulador'
-    })
-  },[sim?.lastSignal?.at,notify])
 
   const activityFeed=[
     lang==='pt'?'Lendo cotacoes da OANDA...':'Reading OANDA quotes...',
@@ -120,44 +108,12 @@ function App(){
     return Number.isFinite(n)?n:0
   },[account])
 
-  const simProfit=useMemo(()=>{
-    const realized=Number(sim?.realizedPL||0)
-    const p=sim?.position
-    let unrealized=0
-    if(p){
-      const q=quotes[p.symbol]
-      const entry=Number(p.entry),units=Number(p.units)
-      const exit=p.direction==='long'?Number(q?.bid):Number(q?.ask)
-      if(Number.isFinite(entry)&&Number.isFinite(units)&&Number.isFinite(exit)){
-        unrealized=(p.direction==='long'?exit-entry:entry-exit)*units
-      }
-    }
-    const total=realized+unrealized
-    const currentBalance=Number(sim?.balance||0)
-    const initial=currentBalance-realized
-    const roi=initial>0?(total/initial)*100:0
-    return{realized,unrealized,total,roi}
-  },[sim,quotes])
-
-  const shadowProfit=useMemo(()=>{
-    const sh=sim?.shadowExperiment
-    const realized=Number(sh?.realizedPL||0)
-    const p=sh?.position
-    let unrealized=0
-    if(p){
-      const q=quotes[p.symbol]
-      const entry=Number(p.entry),units=Number(p.units)
-      const exit=p.direction==='long'?Number(q?.bid):Number(q?.ask)
-      if(Number.isFinite(entry)&&Number.isFinite(units)&&Number.isFinite(exit)){
-        unrealized=(p.direction==='long'?exit-entry:entry-exit)*units
-      }
-    }
-    const total=realized+unrealized
-    const currentBalance=Number(sh?.balance||0)
-    const initial=currentBalance-realized
-    const roi=initial>0?(total/initial)*100:0
-    return{realized,unrealized,total,roi}
-  },[sim,quotes])
+  const shadowLearning=sim?.brokerLearning?.status==='READY'?sim.brokerLearning?.summary:null
+  const shadowRealized=shadowLearning?.trades?shadowLearning.netPL:null
+  const shadowOpenTrade=oandaAudit?.mirrorTrade??null
+  const shadowOpenPL=shadowOpenTrade?.unrealizedPL!=null?Number(shadowOpenTrade.unrealizedPL):null
+  const shadowTradeId=shadowOpenTrade?.id??null
+  const shadowVerified=!!oandaAudit&&oandaAudit.syncStatus==='MATCHED'
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -175,30 +131,19 @@ function App(){
       </nav>
 
       <div className="sidebar-profit">
-        <div className="sidebar-profit-head">
-          <CircleDollarSign size={18}/>
-          <div><small>{lang==='pt'?'LUCRO SIMULADO':'SIMULATED PROFIT'}</small><span>{sim?.shadowExperiment?.position?lang==='pt'?'posição shadow aberta':'shadow position open':lang==='pt'?'shadow paper trading':'shadow paper trading'}</span></div>
+        <div className="sidebar-profit-head"><CircleDollarSign size={18}/>
+          <div><small>SHADOW • OANDA</small><span>{lang==='pt'?'P/L confirmado na corretora':'Broker-confirmed P/L only'}</span></div>
         </div>
-        <strong className={shadowProfit.total>0?'profit-up':shadowProfit.total<0?'profit-down':''}>{signedMoney(shadowProfit.total)}</strong>
-        <div className="profit-roi"><span>{lang==='pt'?'Retorno total':'Total return'}</span><b>{signedPct(shadowProfit.roi)}</b></div>
+        <strong className={shadowRealized!=null?(shadowRealized>=0?'profit-up':'profit-down'):''}>
+          {shadowRealized!=null?signedMoney(shadowRealized):'—'}</strong>
         <div className="profit-split">
-          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><b>{signedMoney(shadowProfit.realized)}</b></div>
-          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><b>{signedMoney(shadowProfit.unrealized)}</b></div>
+          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><b>{shadowRealized!=null?signedMoney(shadowRealized):'—'}</b></div>
+          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><b>{shadowOpenPL!=null?signedMoney(shadowOpenPL):'—'}</b></div>
         </div>
-        {sim?.shadowExperiment?.position&&<>
-          <div className="profit-position">
-            <span className="pulse-dot"/>
-            <div><small>{String(sim.shadowExperiment.position.symbol).replace('_','/')} • {String(sim.shadowExperiment.position.direction).toUpperCase()}</small><b>{lang==='pt'?'Entrada':'Entry'} {fmt(sim.shadowExperiment.position.entry)}</b></div>
-          </div>
-          <details className="sidebar-risk-details"><summary>{lang==='pt'?'Detalhes do risco simulado':'Paper risk details'}</summary>
-            <div className="margin-mini">
-            <div><small>LOT SIZE</small><b>{sim.shadowExperiment.position.lotSize??'—'}</b></div>
-            <div><small>{lang==='pt'?'MARGEM EXIGIDA':'MARGIN REQUIRED'}</small><b>{money(sim.shadowExperiment.position.marginRequired)}</b></div>
-            <div><small>{lang==='pt'?'MARGEM DISPONÍVEL':'MARGIN AVAILABLE'}</small><b>{money(sim.shadowExperiment.position.marginAvailable)}</b></div>
-            <div><small>{lang==='pt'?'MARGEM DEPOIS':'MARGIN AFTER'}</small><b>{money(sim.shadowExperiment.position.marginAfterTrade)}</b></div>
-            <div><small>{lang==='pt'?'ALAVANCAGEM EFETIVA':'EFFECTIVE LEVERAGE'}</small><b>{sim.shadowExperiment.position.effectiveLeverage?sim.shadowExperiment.position.effectiveLeverage+':1':'—'}</b></div>
-            </div></details>
-        </>}
+        <div className="profit-position"><span className={shadowVerified?'pulse-dot':'offline-dot'}/>
+          <div><small>TRADE ID • SHADOW</small><b>{shadowTradeId?'#'+shadowTradeId:'—'}</b></div>
+        </div>
+        <small>{lang==='pt'?'Fechamentos vinculados: ':'Linked broker closures: '}{shadowLearning?.trades??'—'}</small>
       </div>
 
       <div className="sidebar-bottom">
@@ -295,112 +240,79 @@ function App(){
         </div>
       </section>
 
-      <section className="panel simulator-panel">
-        <div className="tiago-live">
-          <div className="tiago-live-left">
-            <div className="scanner-orb"><BrainCircuit size={20}/><span className="scanner-ring"/></div>
-            <div><small>{lang==='pt'?'TIAGO TRABALHANDO AGORA':'TIAGO WORKING NOW'}</small><b>{activityFeed[activityIndex]}</b></div>
-          </div>
-          <div className="work-bars" aria-hidden="true"><i/><i/><i/><i/><i/><i/><i/><i/></div>
-          <span className="heartbeat"><i/>{lang==='pt'?'ATIVO':'ACTIVE'}</span>
+      <section className="panel shadow-lab">
+        <div className="panel-head"><div>
+          <span className="kicker"><Activity size={15}/> OANDA PRACTICE • AO VIVO</span>
+          <h2>{lang==='pt'?'Operações na corretora':'Broker executions'}</h2>
+          <p>{lang==='pt'?'Somente posições e resultados da OANDA Practice, nunca resultados simulados.':
+           'Only OANDA Practice positions and results, never simulated performance.'}</p>
+        </div><span className="locked-pill">OANDA API</span></div>
+        <div className="shadow-grid">
+          <div><small>TRADE ID • SHADOW</small><strong>{shadowTradeId??'—'}</strong></div>
+          <div><small>TRADE ID • OLLAMA</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
+          <div><small>{lang==='pt'?'POSIÇÕES NA CONTA':'ACCOUNT TRADES'}</small><strong>{oandaAudit?.openTrades?.length??'—'}</strong></div>
+          <div><small>{lang==='pt'?'SINCRONIZAÇÃO':'SYNC STATUS'}</small><strong>{oandaAudit?.syncStatus??'—'}</strong></div>
         </div>
-        <div className="panel-head">
-          <div><span className="kicker"><Activity size={15}/> SIMULADOR</span><h2>{lang==='pt'?'O que o Tiago está fazendo':'What Tiago is doing'}</h2><p>{lang==='pt'?'Você acompanha cada decisão e cada trade simulado aqui.':'Track every decision and simulated trade here.'}</p></div>
-          <button className="lang" onClick={async()=>{
-            if(typeof Notification==='undefined')return
-            const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission()
-            setNotify(permission==='granted')
-          }}>{notify?'🔔 ON':'🔕 '+(lang==='pt'?'Avisos':'Alerts')}</button>
-        </div>
-        <div className="sim-grid">
-          <div className="sim-card"><small>{lang==='pt'?'DECISÕES':'DECISIONS'}</small><strong>{sim?.decisions??0}</strong><span>{lang==='pt'?'candles avaliados':'candles evaluated'}</span></div>
-          <div className="sim-card"><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.signals??0}</strong><span>{lang==='pt'?'LONG/SHORT estritos':'strict LONG/SHORT'}</span></div>
-          <div className="sim-card"><small>{lang==='pt'?'SALDO SIMULADO':'SIM BALANCE'}</small><strong>{money(sim?.balance)}</strong><span>P/L: {money(sim?.realizedPL)}</span></div>
-          <div className="sim-card"><small>{lang==='pt'?'POSIÇÃO':'POSITION'}</small><strong>{sim?.position?String(sim.position.direction).toUpperCase():'WAIT'}</strong><span>{sim?.position?String(sim.position.symbol).replace('_','/'):(lang==='pt'?'nenhuma aberta':'none open')}</span></div>
-        </div>
-        <div className="sim-detail">
-          <div><small>{lang==='pt'?'ÚLTIMA DECISÃO':'LAST DECISION'}</small><b>{sim?.lastDecision?String(sim.lastDecision.symbol).replace('_','/')+' • '+String(sim.lastDecision.signal?.decision||'WAIT'):'—'}</b><span>{sim?.lastDecision?.signal?.reasons?.join(' • ')||'—'}</span></div>
-          <div><small>{lang==='pt'?'ÚLTIMA AÇÃO':'LAST ACTION'}</small><b>{sim?.lastAction?.type||'—'}</b><span>{sim?.lastAction?JSON.stringify(sim.lastAction):lang==='pt'?'Nenhum trade simulado ainda':'No simulated trade yet'}</span></div>
-          <div><small>{lang==='pt'?'CANDIDATOS 3/4':'3/4 CANDIDATES'}</small><b>{sim?.shadowCandidates??0}</b><span>{sim?.lastShadowCandidate?String(sim.lastShadowCandidate.symbol).replace('_','/')+' • '+String(sim.lastShadowCandidate.side)+' • '+(lang==='pt'?'faltou ':'missing ')+(sim.lastShadowCandidate.missing?.join(', ')||'—'):(lang==='pt'?'Nenhum candidato ainda':'No candidate yet')}</span></div>
-        </div>
-        <div className="risk-footer"><ShieldCheck size={16}/><span>{lang==='pt'?'O simulador escolhe os trades pela estratégia matemática; Ollama só pode vetar.':'The simulator chooses trades from the deterministic strategy; Ollama can only veto.'}</span><b>{lang==='pt'?'DEMO/PAPER':'DEMO/PAPER'}</b></div>
       </section>
 
       <section className="panel shadow-lab">
-        <div className="panel-head">
-          <div>
-            <span className="kicker"><Target size={15}/> SHADOW 3/4</span>
-            <h2>{lang==='pt'?'Laboratório de trades 3/4':'3/4 trade lab'}</h2>
-            <p>{lang==='pt'?'Paper engine separado. Não altera a estratégia STRICT e não envia ordens reais.':'Separate paper engine. It does not change STRICT and never sends real orders.'}</p>
-          </div>
-          <span className="locked-pill">RESEARCH ONLY</span>
-        </div>
+        <div className="panel-head"><div>
+          <span className="kicker"><Target size={15}/> SHADOW 3/4 • OANDA</span>
+          <h2>{lang==='pt'?'Shadow 3/4 — resultados oficiais':'Shadow 3/4 — broker results'}</h2>
+          <p>{lang==='pt'?'Apenas trades Shadow vinculados a fechamentos da OANDA.':
+            'Only Shadow trades attributed to OANDA closed positions.'}</p>
+        </div><span className="locked-pill">PRACTICE ONLY</span></div>
         <div className="shadow-grid">
-          <div><small>{lang==='pt'?'SALDO SHADOW':'SHADOW BALANCE'}</small><strong>{money(sim?.shadowExperiment?.balance)}</strong></div>
-          <div><small>{lang==='pt'?'P/L TOTAL':'TOTAL P/L'}</small><strong className={shadowProfit.total>0?'profit-up':shadowProfit.total<0?'profit-down':''}>{signedMoney(shadowProfit.total)}</strong></div>
-          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><strong>{signedMoney(shadowProfit.realized)}</strong></div>
-          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><strong>{signedMoney(shadowProfit.unrealized)}</strong></div>
-          <div><small>{lang==='pt'?'ABERTOS':'OPENS'}</small><strong>{sim?.shadowExperiment?.opens??0}</strong></div>
-          <div><small>{lang==='pt'?'FECHADOS':'CLOSES'}</small><strong>{sim?.shadowExperiment?.closes??0}</strong></div>
-          <div><small>W / L</small><strong>{sim?.shadowExperiment?.wins??0} / {sim?.shadowExperiment?.losses??0}</strong></div>
-          <div><small>ROI</small><strong>{signedPct(shadowProfit.roi)}</strong></div>
+          <div><small>{lang==='pt'?'LUCRO REALIZADO':'REALIZED P/L'}</small>
+            <strong className={shadowRealized!=null?(shadowRealized>=0?'profit-up':'profit-down'):''}>
+              {shadowRealized!=null?signedMoney(shadowRealized):'—'}</strong></div>
+          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small>
+            <strong>{shadowOpenPL!=null?signedMoney(shadowOpenPL):'—'}</strong></div>
+          <div><small>W / L</small><strong>{shadowLearning?shadowLearning.wins+' / '+shadowLearning.losses:'—'}</strong></div>
+          <div><small>{lang==='pt'?'FECHADOS CONFERIDOS':'VERIFIED CLOSED'}</small><strong>{shadowLearning?.trades??'—'}</strong></div>
+          <div><small>TRADE ID</small><strong>{shadowTradeId??'—'}</strong></div>
+          <div><small>{lang==='pt'?'HISTÓRICO':'HISTORY STATUS'}</small><strong>{sim?.brokerLearning?.status??'—'}</strong></div>
         </div>
         <div className="shadow-position">
-          <small>{lang==='pt'?'POSIÇÃO SHADOW':'SHADOW POSITION'}</small>
-          <b>{sim?.shadowExperiment?.position?String(sim.shadowExperiment.position.symbol).replace('_','/')+' • '+String(sim.shadowExperiment.position.direction).toUpperCase():(lang==='pt'?'Nenhuma aberta':'None open')}</b>
-          <span>{sim?.shadowExperiment?.lastAction?JSON.stringify(sim.shadowExperiment.lastAction):(lang==='pt'?'Aguardando candidato 3/4':'Waiting for 3/4 candidate')}</span>
+          <small>{lang==='pt'?'POSIÇÃO CONFIRMADA':'CONFIRMED POSITION'}</small>
+          <b>{shadowOpenTrade?String(shadowOpenTrade.instrument)+' · '+(Number(shadowOpenTrade.currentUnits)<0?'SHORT':'LONG'):
+            (lang==='pt'?'Nenhuma posição Shadow aberta confirmada':'No confirmed open Shadow trade')}</b>
+          <span>{shadowOpenTrade?'OANDA #'+shadowOpenTrade.id+' · Entry '+String(shadowOpenTrade.price??'—')+
+            ' · Stop '+String(shadowOpenTrade.stopLossOrder?.price??'—'):'—'}</span>
         </div>
       </section>
 
       <section className="panel performance-board">
-        <div className="panel-head">
-          <div>
-            <span className="kicker"><ChartNoAxesCombined size={15}/> STRATEGY SCOREBOARD</span>
-            <h2>{lang==='pt'?'Qual estratégia está fazendo dinheiro?':'Which strategy is making money?'}</h2>
-            <p>{lang==='pt'?'Resultados independentes: Strict 4/4, Shadow 3/4, Early Exit, Fimathe e Ollama. Early Exit testa saídas antecipadas após 3 horas, sem alterar o Shadow.':'Independent results: Strict 4/4, Shadow 3/4, Early Exit, Fimathe and Ollama. Early Exit tests earlier exits after 3 hours, without changing Shadow.'}</p>
-          </div>
-          <span className="live-pill"><i/> PAPER DATA</span>
-        </div>
+        <div className="panel-head"><div>
+          <span className="kicker"><ChartNoAxesCombined size={15}/> OANDA PRACTICE</span>
+          <h2>{lang==='pt'?'Somente Shadow 3/4 e Ollama':'Only Shadow 3/4 and Ollama'}</h2>
+          <p>{lang==='pt'?'Resultados somente de Trade IDs da OANDA.':'Only OANDA-attributed Trade IDs.'}</p>
+        </div><span className="live-pill"><i/> OANDA DATA</span></div>
         <div className="strategy-score-grid">
-          <StrategyPerformanceCard
-            name="STRICT 4/4"
-            status={lang==='pt'?'ATIVO • raro':'ACTIVE • selective'}
-            stats={sim?.strategyPerformance?.STRICT_4_OF_4}
-            lang={lang}
-          />
-          <StrategyPerformanceCard
-            name="SHADOW 3/4"
-            status={sim?.shadowExperiment?.position?(lang==='pt'?'ATIVO • trade aberto':'ACTIVE • trade open'):(lang==='pt'?'ATIVO':'ACTIVE')}
-            stats={sim?.strategyPerformance?.SHADOW_3_OF_4}
-            lang={lang}
-          />
-          <StrategyPerformanceCard
-            name="NO MACRO + EARLY EXIT"
-            status={sim?.noMacroEarlyExitExperiment?.position?(lang==='pt'?'TESTE • trade aberto':'TEST • trade open'):(lang==='pt'?'TESTE • 3h fraco sai cedo':'TEST • weak 3h exits early')}
-            stats={sim?.strategyPerformance?.NO_MACRO_EARLY_EXIT_3H}
-            lang={lang}
-            researchOnly
-          />
-          <StrategyPerformanceCard
-            name="FIMATHE"
-            status={sim?.fimathePaperExperiment?.position?(lang==='pt'?'PAPER • posição aberta':'PAPER • position open'):(lang==='pt'?'PAPER • PROXY EXPERIMENTAL':'PAPER • EXPERIMENTAL PROXY')}
-            stats={sim?.strategyPerformance?.FIMATHE}
-            lang={lang}
-            researchOnly
-          />
-          <div className="strategy-score-card ollama-strategy-card">
-            <div className="strategy-score-head"><b>OLLAMA • OANDA PRACTICE</b><span>{ollamaOandaStatus(ollamaMirror?.status,lang)}</span></div>
+          <div className="strategy-score-card">
+            <div className="strategy-score-head"><b>SHADOW 3/4</b><span>OANDA PRACTICE</span></div>
+            <strong className={shadowRealized!=null?(shadowRealized>=0?'profit-up':'profit-down'):''}>
+              {shadowRealized!=null?signedMoney(shadowRealized):'—'}</strong>
             <div className="shadow-grid">
-              <div><small>{lang==='pt'?'LUCRO CONFIRMADO':'CONFIRMED P/L'}</small><strong>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</strong></div>
+              <div><small>W / L</small><strong>{shadowLearning?shadowLearning.wins+' / '+shadowLearning.losses:'—'}</strong></div>
+              <div><small>TRADE ID</small><strong>{shadowTradeId??'—'}</strong></div>
+            </div>
+            <p>{lang==='pt'?'Somente fechamentos vinculados na OANDA; amostra pode ser parcial.':
+              'Only OANDA-linked closures; the historical sample may be partial.'}</p>
+          </div>
+          <div className="strategy-score-card ollama-strategy-card">
+            <div className="strategy-score-head"><b>OLLAMA • OANDA PRACTICE</b>
+              <span>{ollamaOandaStatus(ollamaMirror?.status,lang)}</span></div>
+            <strong>{ollamaMirror?.source==='OANDA_API'?signedMoney(ollamaMirror.realizedPL):'—'}</strong>
+            <div className="shadow-grid">
+              <div><small>{lang==='pt'?'FECHADOS':'CLOSED'}</small><strong>{ollamaMirror?.closedTrades??'—'}</strong></div>
               <div><small>TRADE ID</small><strong>{ollamaMirror?.tradeId??'—'}</strong></div>
             </div>
-            <p>{lang==='pt'?'Resultados exclusivos da OANDA Practice, sem saldo virtual.':'OANDA Practice confirmed trades only, no virtual balance.'}</p>
+            <p>{lang==='pt'?'Apenas resultados de operações identificadas na OANDA.':
+              'Only broker-confirmed Ollama results.'}</p>
           </div>
         </div>
       </section>
-
-
-
 
       <section className="panel shadow-lab ollama-lab">
         <div className="panel-head"><div>
@@ -588,29 +500,6 @@ function App(){
         </div>
       </section>
 
-      <section className="panel shadow-lab">
-        <div className="panel-head"><div>
-          <span className="kicker"><Target size={15}/> FIMATHE PAPER • PROXY V1</span>
-          <h2>{lang==='pt'?'Fimathe experimental independente':'Independent experimental Fimathe'}</h2>
-          <p>{lang==='pt'?'Simulação isolada de US$1.000: canal dos 20 candles M1 fechados anteriores, direção do último diário fechado, stop estrutural e alvo experimental 2R. Ainda não representa a fórmula oficial Fimathe. Nunca envia ordens.':'Isolated $1,000 simulation: 20 prior closed M1 bars, last completed daily direction, structural stop and experimental 2R target. Not the official Fimathe method. Never submits orders.'}</p>
-        </div><span className="locked-pill">PAPER ONLY</span></div>
-        <div className="shadow-grid">
-          <div><small>{lang==='pt'?'SALDO':'BALANCE'}</small><strong>{money(sim?.fimathePaperExperiment?.balance)}</strong></div>
-          <div><small>{lang==='pt'?'REALIZADO':'REALIZED'}</small><strong>{signedMoney(sim?.fimathePaperExperiment?.realizedPL??0)}</strong></div>
-          <div><small>{lang==='pt'?'EM ABERTO':'OPEN P/L'}</small><strong>{signedMoney(sim?.fimathePaperExperiment?.openPnl??0)}</strong></div>
-          <div><small>{lang==='pt'?'DECISÕES':'DECISIONS'}</small><strong>{sim?.fimathePaperExperiment?.decisions??0}</strong></div>
-          <div><small>{lang==='pt'?'SINAIS':'SIGNALS'}</small><strong>{sim?.fimathePaperExperiment?.signals??0}</strong></div>
-          <div><small>{lang==='pt'?'ABERTOS / FECHADOS':'OPEN / CLOSED'}</small><strong>{sim?.fimathePaperExperiment?.opens??0} / {sim?.fimathePaperExperiment?.closes??0}</strong></div>
-          <div><small>W / L</small><strong>{sim?.fimathePaperExperiment?.wins??0} / {sim?.fimathePaperExperiment?.losses??0}</strong></div>
-          <div><small>VERSION</small><strong>{sim?.fimathePaperExperiment?.version??'—'}</strong></div>
-        </div>
-        <div className="shadow-position">
-          <small>{lang==='pt'?'POSIÇÃO FIMATHE':'FIMATHE POSITION'}</small>
-          <b>{sim?.fimathePaperExperiment?.position?String(sim.fimathePaperExperiment.position.symbol).replace('_','/')+' • '+String(sim.fimathePaperExperiment.position.direction).toUpperCase():(lang==='pt'?'Nenhuma aberta':'None open')}</b>
-          <span>{sim?.fimathePaperExperiment?.lastAction?JSON.stringify(sim.fimathePaperExperiment.lastAction):(lang==='pt'?'Aguardando primeiro sinal':'Waiting for first signal')}</span>
-        </div>
-      </section>
-
       <section className="panel protection">
         <div className="panel-head">
           <div><span className="kicker"><ShieldCheck size={15}/>{x.risk}</span><h2>{x.security}</h2><p>{x.securitySub}</p></div>
@@ -648,27 +537,6 @@ function App(){
 }
 
 function Nav({icon,label,active=false}:{icon:React.ReactNode;label:string;active?:boolean}){return <button className={active?'nav-item active':'nav-item'}>{icon}<span>{label}</span></button>}
-function StrategyPerformanceCard({name,status,stats,lang,researchOnly=false,ollamaAccent=false}:{name:string;status:string;stats:any;lang:Lang;researchOnly?:boolean;ollamaAccent?:boolean}){
-  const trades=Number(stats?.trades||0),wins=Number(stats?.wins||0),losses=Number(stats?.losses||0)
-  const grossProfit=Number(stats?.grossProfit||0),grossLoss=Number(stats?.grossLoss||0),net=Number(stats?.netProfit||0),maxDD=Number(stats?.maxDrawdown||0)
-  const winRate=trades>0?(wins/trades)*100:0
-  const avgWin=wins>0?grossProfit/wins:0
-  const avgLoss=losses>0?grossLoss/losses:0
-  const profitFactor=grossLoss>0?grossProfit/grossLoss:null
-  return <div className={ollamaAccent?"strategy-score-card ollama-strategy-card":"strategy-score-card"}>
-    <div className="strategy-score-head"><div><small>{status}</small><b>{name}</b></div><span className={researchOnly?'research-badge':'paper-badge'}>{researchOnly?'RESEARCH':'PAPER'}</span></div>
-    <strong className={net>0?'profit-up':net<0?'profit-down':''}>{signedMoney(net)}</strong>
-    <div className="strategy-score-metrics">
-      <div><small>{lang==='pt'?'TRADES':'TRADES'}</small><b>{trades}</b></div>
-      <div><small>{lang==='pt'?'ACERTO':'WIN RATE'}</small><b>{winRate.toFixed(1)}%</b></div>
-      <div><small>{lang==='pt'?'FATOR LUCRO':'PROFIT FACTOR'}</small><b>{profitFactor==null?'—':profitFactor.toFixed(2)}</b></div>
-      <div><small>{lang==='pt'?'MAX DRAWDOWN':'MAX DRAWDOWN'}</small><b>{money(maxDD)}</b></div>
-      <div><small>{lang==='pt'?'MÉDIA GANHO':'AVG WIN'}</small><b>{signedMoney(avgWin)}</b></div>
-      <div><small>{lang==='pt'?'MÉDIA PERDA':'AVG LOSS'}</small><b>{losses>0?'-'+money(avgLoss):money(0)}</b></div>
-    </div>
-    <div className="strategy-score-foot"><span>W {wins} / L {losses}</span><span>{stats?.lastClosedAt?new Date(stats.lastClosedAt).toLocaleString():(lang==='pt'?'sem trade fechado':'no closed trade')}</span></div>
-  </div>
-}
 function RiskCard({label,value,detail}:{label:string;value:string;detail:string}){return <div className="risk-card"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
 function money(v:any){if(v==null||v==='')return'—';const n=Number(v);return Number.isFinite(n)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n):String(v)}
 function fmt(v:any){const n=Number(v);if(!Number.isFinite(n))return'—';return n>=20?n.toFixed(3):n.toFixed(5)}
