@@ -1,4 +1,3 @@
-import{FimathePaperEngine}from'./FimathePaperEngine.js'
 import{OllamaPaperEngine}from'./OllamaPaperEngine.js'
 import{ShadowMemoryResearch}from'./ShadowMemoryResearch.js'
 import{Decimal}from'decimal.js'
@@ -7,11 +6,10 @@ import{resolve,dirname}from'node:path'
 import{fileURLToPath}from'node:url'
 import{OandaReadOnly}from'../broker/OandaReadOnly.js'
 import{strategyContext}from'../indicators.js'
-import{evaluate,analyzeCandidate,evaluateNoMacro}from'../strategy.js'
+import{evaluate,analyzeCandidate}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
-import{critique}from'../ollama.js'
-import{env,SIMULATOR_ENABLED,SIMULATOR_PAIRS,OANDA_DEMO_MIRROR_ENABLED}from'../config.js'
-import{logSimulator,logTrade,logFimatheMarket,logShadowCandidate,logShadowTrade,logNoMacroEarlyExitTrade}from'./logger.js'
+import{env,SHADOW_OANDA_PAIRS,OANDA_DEMO_MIRROR_ENABLED}from'../config.js'
+import{logShadowCandidate,logShadowTrade}from'./logger.js'
 import type{Direction}from'../types.js'
 
 type Position={
@@ -38,7 +36,7 @@ type Position={
  brokerMirrorStatus?:'OPEN'|'CLOSED'|'ERROR'
 }
 
-type StrategyName='STRICT_4_OF_4'|'SHADOW_3_OF_4'|'NO_MACRO_EARLY_EXIT_3H'|'FIMATHE'
+type StrategyName='SHADOW_3_OF_4'
 type StrategyStats={
  trades:number
  wins:number
@@ -54,17 +52,7 @@ type StrategyStats={
 const blankStrategyStats=():StrategyStats=>({trades:0,wins:0,losses:0,grossProfit:'0',grossLoss:'0',netProfit:'0',peakNetProfit:'0',maxDrawdown:'0',lastPnl:'0',lastClosedAt:null})
 
 type State={
- balance:string
- realizedPL:string
  lastCandle:Record<string,string>
- position:Position|null
- startedAt:string
- decisions:number
- signals:number
- lastDecision:any|null
- lastSignal:any|null
- lastAction:any|null
- fimatheLastCandle:Record<string,string>
  shadowCandidates:number
  lastShadowCandidate:any|null
  shadowExperiment:{
@@ -78,57 +66,41 @@ type State={
   lastAction:any|null
   pendingMirrorCloseTradeId:string|null
  }
- noMacroEarlyExitExperiment:{
-  balance:string
-  realizedPL:string
-  position:Position|null
-  opens:number
-  closes:number
-  wins:number
-  losses:number
-  lastAction:any|null
- }
  strategyPerformance:Record<StrategyName,StrategyStats>
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
 const STATE_PATH=resolve(here,'../../../data/simulator-state.json')
-const RISK_PATH=resolve(here,'../../../data/simulator-risk.json')
 const SHADOW_RISK_PATH=resolve(here,'../../../data/shadow-simulator-risk.json')
 const SHADOW_TRADE_LOG_PATH=resolve(here,'../../../logs/shadow-paper/trades.jsonl')
-const NO_MACRO_EARLY_EXIT_RISK_PATH=resolve(here,'../../../data/no-macro-early-exit-risk.json')
-
 export class ResearchSimulator{
- private state:State={balance:'0',realizedPL:'0',lastCandle:{},position:null,startedAt:new Date().toISOString(),decisions:0,signals:0,lastDecision:null,lastSignal:null,lastAction:null,fimatheLastCandle:{},shadowCandidates:0,lastShadowCandidate:null,shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null,pendingMirrorCloseTradeId:null},noMacroEarlyExitExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null},strategyPerformance:{STRICT_4_OF_4:blankStrategyStats(),SHADOW_3_OF_4:blankStrategyStats(),NO_MACRO_EARLY_EXIT_3H:blankStrategyStats(),FIMATHE:blankStrategyStats()}}
+ private state:State={lastCandle:{},shadowCandidates:0,lastShadowCandidate:null,
+  shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null,pendingMirrorCloseTradeId:null},
+  strategyPerformance:{SHADOW_3_OF_4:blankStrategyStats()}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
- private simRisk=new RiskManager(RISK_PATH)
  private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
- private noMacroEarlyExitRisk=new RiskManager(NO_MACRO_EARLY_EXIT_RISK_PATH)
  private shadowRecoveryChecked=false
- private fimathePaper:FimathePaperEngine
  private ollamaPaper:OllamaPaperEngine
  private shadowMemoryResearch:ShadowMemoryResearch
  private memoryTick=0
-
- constructor(private broker:OandaReadOnly){this.load();this.fimathePaper=new FimathePaperEngine(broker);this.ollamaPaper=new OllamaPaperEngine(broker);this.shadowMemoryResearch=new ShadowMemoryResearch(broker)}
+ constructor(private broker:OandaReadOnly){
+  this.load()
+  this.ollamaPaper=new OllamaPaperEngine(broker)
+  this.shadowMemoryResearch=new ShadowMemoryResearch(broker)
+ }
 
  private load(){
   if(!existsSync(STATE_PATH))return
   try{
    const saved=JSON.parse(readFileSync(STATE_PATH,'utf8'))
-   // Do not restore retired 3/3 state from old local JSON, and keep historical files untouched.
-   const {noMacroExperiment:retiredExperiment,...currentSaved}=saved
-   this.state={...this.state,...currentSaved}
+   // Explicitly restore ONLY Shadow state. Never restore obsolete paper strategies.
+   this.state.lastCandle=saved.lastCandle&&typeof saved.lastCandle==='object'?saved.lastCandle:{}
+   this.state.shadowCandidates=Number(saved.shadowCandidates||0)
+   this.state.lastShadowCandidate=saved.lastShadowCandidate??null
    this.state.shadowExperiment={...this.state.shadowExperiment,...(saved.shadowExperiment||{})}
-   this.state.noMacroEarlyExitExperiment={...this.state.noMacroEarlyExitExperiment,...(saved.noMacroEarlyExitExperiment||{})}
-   const perf=saved.strategyPerformance||{}
    this.state.strategyPerformance={
-    STRICT_4_OF_4:{...blankStrategyStats(),...(perf.STRICT_4_OF_4||{})},
-    SHADOW_3_OF_4:{...blankStrategyStats(),...(perf.SHADOW_3_OF_4||{})},
-    
-    NO_MACRO_EARLY_EXIT_3H:{...blankStrategyStats(),...(perf.NO_MACRO_EARLY_EXIT_3H||{})},
-    FIMATHE:{...blankStrategyStats(),...(perf.FIMATHE||{})}
+    SHADOW_3_OF_4:{...blankStrategyStats(),...(saved.strategyPerformance?.SHADOW_3_OF_4||{})}
    }
   }catch{}
  }
@@ -242,158 +214,80 @@ export class ResearchSimulator{
  private async ensureBalance(){
   const a=await this.broker.account()
   let changed=false
-  if(new Decimal(this.state.balance||0).lte(0)){
-   this.state.balance=a.equity
-   this.simRisk.recordEquity(a.equity)
-   changed=true
-  }
-
   const shadow=this.state.shadowExperiment
   const shadowBalance=new Decimal(shadow?.balance||0)
   const shadowRealized=new Decimal(shadow?.realizedPL||0)
   const referenceEquity=new Decimal(a.equity||0)
-
-  // A missing/zero balance can happen after moving the repo to a new PC/drive.
-  // Initialize the balance without erasing an open Shadow trade that can be
-  // recovered from the append-only trade log.
+  // Preserve Shadow's existing recovery, positions, stop calculations and risk semantics.
   if(shadowBalance.lte(0)&&shadowRealized.abs().lte(referenceEquity.mul(2))){
    this.state.shadowExperiment.balance=a.equity
    changed=true
   }
-
-  // Self-heal only obviously impossible/corrupted realized P/L.
-  // With this simulator's capped risk, realized P/L beyond 200% of the
-  // reference account is treated as data corruption, not a trading result.
-  const corruptedShadow=
-   referenceEquity.gt(0)&&shadowRealized.abs().gt(referenceEquity.mul(2))
-
+  const corruptedShadow=referenceEquity.gt(0)&&shadowRealized.abs().gt(referenceEquity.mul(2))
   if(corruptedShadow){
    const previous={...shadow}
-   this.state.shadowExperiment={
-    balance:a.equity,
-    realizedPL:'0',
-    position:null,
-    opens:0,
-    closes:0,
-    wins:0,
-    losses:0,
-    lastAction:{
-     at:new Date().toISOString(),
-     type:'SHADOW_STATE_REPAIRED',
-     reason:'Invalid shadow P/L state detected after cross-symbol quote bug',
-     previous
-    },
-    pendingMirrorCloseTradeId:null
-   }
+   this.state.shadowExperiment={balance:a.equity,realizedPL:'0',position:null,opens:0,closes:0,
+    wins:0,losses:0,lastAction:{at:new Date().toISOString(),type:'SHADOW_STATE_REPAIRED',
+    reason:'Invalid shadow P/L state detected after cross-symbol quote bug',previous},pendingMirrorCloseTradeId:null}
    this.shadowRisk.reset(a.equity)
    logShadowTrade({event:'SHADOW_STATE_REPAIRED',reason:'Invalid shadow P/L state detected after cross-symbol quote bug',previous,recoveredBalance:a.equity})
    changed=true
   }
-
   if(!corruptedShadow&&this.recoverShadowOpenFromLog()){
    this.shadowRisk.recordEquity(this.state.shadowExperiment.balance)
    changed=true
   }
-
-  const staleShadowRisk=
-   this.state.shadowExperiment.opens===0&&
-   this.state.shadowExperiment.closes===0&&
-   new Decimal(this.state.shadowExperiment.realizedPL||0).eq(0)&&
-   this.shadowRisk.locked()
-
+  const staleShadowRisk=this.state.shadowExperiment.opens===0&&this.state.shadowExperiment.closes===0&&
+   new Decimal(this.state.shadowExperiment.realizedPL||0).eq(0)&&this.shadowRisk.locked()
   if(staleShadowRisk){
    this.shadowRisk.reset(a.equity)
    logShadowTrade({event:'SHADOW_RISK_RESET',reason:'Stale/corrupted shadow risk history cleared',recoveredEquity:a.equity})
    changed=true
   }
-
-  if(new Decimal(this.state.noMacroEarlyExitExperiment.balance||0).lte(0)){
-   this.state.noMacroEarlyExitExperiment.balance=a.equity
-   this.noMacroEarlyExitRisk.reset(a.equity)
-   changed=true
-  }
-
   if(changed)this.save()
  }
 
  start(){
-  if(!SIMULATOR_ENABLED)return
-  if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime())return
-  logSimulator({event:'SIMULATOR_START',endAt:env.SIMULATOR_END_AT,pairs:SIMULATOR_PAIRS})
-  logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,demoMirrorEnabled:OANDA_DEMO_MIRROR_ENABLED})
-  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_LOG_READY',status:'ready',pairs:SIMULATOR_PAIRS,rule:{minAgeHours:3,maxPeakR:'0.10',currentRAtOrBelow:'-0.25'}})
-  this.fimathePaper.start()
+  logShadowTrade({event:'SHADOW_LOG_READY',status:'ready',pairs:SHADOW_OANDA_PAIRS,demoMirrorEnabled:OANDA_DEMO_MIRROR_ENABLED})
   this.ollamaPaper.start()
   void this.shadowMemoryResearch.refresh().catch(()=>{})
   void this.tick()
-  this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SIMULATOR_POLL_MS))
+  this.timer=setInterval(()=>void this.tick(),Math.max(10000,env.SHADOW_OANDA_POLL_MS))
  }
-
- stop(){
-  if(this.timer)clearInterval(this.timer)
-  this.timer=null
-  logSimulator({event:'SIMULATOR_STOP'})
- }
-
- snapshot(){const paper=this.fimathePaper.snapshot();const ai=this.ollamaPaper.snapshot();return {...this.state,fimathePaperExperiment:paper,ollamaPaperExperiment:ai,ollamaShadowMemory:this.shadowMemoryResearch.snapshot(),strategyPerformance:{...this.state.strategyPerformance,FIMATHE:paper.stats,OLLAMA_AI_LAB:ai.stats}}}
-
+ stop(){if(this.timer)clearInterval(this.timer);this.timer=null}
+ // Only OANDA-backed details are offered to the UI. Legacy simulated balances are never returned.
+ snapshot(){const ai=this.ollamaPaper.snapshot();return{
+  shadowCandidates:this.state.shadowCandidates,
+  lastShadowCandidate:this.state.lastShadowCandidate?{
+   symbol:this.state.lastShadowCandidate.symbol,side:this.state.lastShadowCandidate.side,
+   missing:this.state.lastShadowCandidate.missing,
+   at:this.state.lastShadowCandidate.at
+  }:null,
+  ollamaAi:{status:ai.status,decisions:ai.decisions,signals:ai.signals,errors:ai.errors,
+   lastReviewedAt:ai.lastReviewedAt,lastDecision:ai.lastDecision,
+   lastSetup:ai.lastSetup,lastMarket:ai.lastMarket,events:ai.events,
+   lastBrokerSignal:ai.lastBrokerSignal,waitResearch:ai.waitResearch},
+  brokerLearning:ai.brokerLearning,
+  shadowMemory:this.shadowMemoryResearch.snapshot()
+ }}
+ // Read only for shadow/Ollama owner coordination; local values are NEVER shown as broker P/L.
+ shadowSnapshot(){return{position:this.state.shadowExperiment.position,
+  pendingMirrorCloseTradeId:this.state.shadowExperiment.pendingMirrorCloseTradeId}}
+ ollamaSnapshot(){const ai=this.ollamaPaper.snapshot();return{lastBrokerSignal:ai.lastBrokerSignal??null}}
  private recordStrategyResult(strategy:StrategyName,pnl:Decimal){
-  const s=this.state.strategyPerformance[strategy]
-  s.trades++
-  s.lastPnl=pnl.toString()
-  s.lastClosedAt=new Date().toISOString()
-  if(pnl.gt(0)){
-   s.wins++
-   s.grossProfit=new Decimal(s.grossProfit).plus(pnl).toString()
-  }else if(pnl.lt(0)){
-   s.losses++
-   s.grossLoss=new Decimal(s.grossLoss).plus(pnl.abs()).toString()
-  }
-  const net=new Decimal(s.netProfit).plus(pnl)
-  s.netProfit=net.toString()
-  const peak=Decimal.max(new Decimal(s.peakNetProfit),net)
-  s.peakNetProfit=peak.toString()
+  const v=this.state.strategyPerformance[strategy]
+  v.trades++;v.lastPnl=pnl.toString();v.lastClosedAt=new Date().toISOString()
+  if(pnl.gt(0)){v.wins++;v.grossProfit=new Decimal(v.grossProfit).plus(pnl).toString()}
+  else if(pnl.lt(0)){v.losses++;v.grossLoss=new Decimal(v.grossLoss).plus(pnl.abs()).toString()}
+  const net=new Decimal(v.netProfit).plus(pnl),peak=Decimal.max(new Decimal(v.peakNetProfit),net)
+  v.netProfit=net.toString();v.peakNetProfit=peak.toString()
   const dd=peak.minus(net)
-  if(dd.gt(new Decimal(s.maxDrawdown)))s.maxDrawdown=dd.toString()
+  if(dd.gt(new Decimal(v.maxDrawdown)))v.maxDrawdown=dd.toString()
  }
-
  private pnlFor(p:Position,exit:string){
   const e=new Decimal(exit),entry=new Decimal(p.entry),units=new Decimal(p.units)
   return(p.direction==='long'?e.minus(entry):entry.minus(e)).mul(units)
  }
-
- private async manageOpen(){
-  const p=this.state.position
-  if(!p)return
-  const q=await this.broker.quote(p.symbol)
-  if(q.symbol!==p.symbol){
-   logSimulator({event:'QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
-   return
-  }
-  const exit=p.direction==='long'?q.bid:q.ask
-  const stop=new Decimal(p.hardStop)
-  const hit=p.direction==='long'?new Decimal(exit).lte(stop):new Decimal(exit).gte(stop)
-  const unrealized=this.pnlFor(p,exit)
-  const markedEquity=new Decimal(this.state.balance).plus(unrealized)
-  this.simRisk.recordEquity(markedEquity.toString())
-  logSimulator({event:'POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,unrealizedPL:unrealized.toString(),markedEquity:markedEquity.toString(),riskLocked:this.simRisk.locked()})
-  if(hit)this.closePosition(exit,'HARD_STOP')
- }
-
- private closePosition(exit:string,reason:string){
-  const p=this.state.position
-  if(!p)return
-  const pnl=this.pnlFor(p,exit)
-  this.state.balance=new Decimal(this.state.balance).plus(pnl).toString()
-  this.state.realizedPL=new Decimal(this.state.realizedPL).plus(pnl).toString()
-  this.state.position=null
-  this.state.lastAction={at:new Date().toISOString(),type:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:this.state.balance}
-  this.recordStrategyResult('STRICT_4_OF_4',pnl)
-  this.simRisk.recordEquity(this.state.balance)
-  this.save()
-  logTrade({event:'PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:this.state.balance,reason,openedAt:p.openedAt})
- }
-
 
  private async syncShadowDemoStop(p:Position){
   if(!OANDA_DEMO_MIRROR_ENABLED||!p.brokerMirrorTradeId||p.brokerMirrorStatus!=='OPEN')return
@@ -575,142 +469,6 @@ export class ResearchSimulator{
  }
 
 
- private async manageNoMacroEarlyExitOpen(){
-  const p=this.state.noMacroEarlyExitExperiment.position
-  if(!p)return
-  const q=await this.broker.quote(p.symbol)
-  if(q.symbol!==p.symbol){
-   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_QUOTE_REJECTED',positionSymbol:p.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch'})
-   return
-  }
-  const exit=p.direction==='long'?q.bid:q.ask
-  const exitDec=new Decimal(exit)
-  const entry=new Decimal(p.entry)
-  const units=new Decimal(p.units)
-  const originalStop=new Decimal(p.originalHardStop||p.hardStop)
-  const riskCash=p.initialRiskCash?new Decimal(p.initialRiskCash):entry.minus(originalStop).abs().mul(units)
-  const priorPeak=p.peakExit?new Decimal(p.peakExit):exitDec
-  const betterPeak=p.direction==='long'?exitDec.gt(priorPeak):exitDec.lt(priorPeak)
-  if(!p.peakExit||betterPeak)p.peakExit=exitDec.toString()
-
-  const peakExit=new Decimal(p.peakExit)
-  const peakPnl=(p.direction==='long'?peakExit.minus(entry):entry.minus(peakExit)).mul(units)
-  const currentPnl=this.pnlFor(p,exit)
-  const currentR=riskCash.gt(0)?currentPnl.div(riskCash):new Decimal(0)
-  const peakR=riskCash.gt(0)?peakPnl.div(riskCash):new Decimal(0)
-  const ageHours=Math.max(0,(Date.now()-Date.parse(p.openedAt))/3600000)
-
-  if(riskCash.gt(0)&&currentPnl.gte(riskCash)&&!p.profitLockActive){
-   const oldStop=p.hardStop
-   p.hardStop=entry.toString()
-   p.profitLockActive=true
-   this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentR.toString()}
-   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_BREAK_EVEN_ARMED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,unrealizedPL:currentPnl.toString(),riskCash:riskCash.toString(),rMultiple:currentR.toString()})
-  }
-
-  if(riskCash.gt(0)&&peakPnl.gte(riskCash.mul(2))){
-   const protectedPnl=peakPnl.mul(0.5)
-   const distance=protectedPnl.div(units)
-   const trailingStop=p.direction==='long'?entry.plus(distance):entry.minus(distance)
-   const currentStop=new Decimal(p.hardStop)
-   const improves=p.direction==='long'?trailingStop.gt(currentStop):trailingStop.lt(currentStop)
-   if(improves){
-    const oldStop=p.hardStop
-    p.hardStop=trailingStop.toString()
-    p.trailingActive=true
-    this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakR.toString()}
-    logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_TRAIL_RAISED',symbol:p.symbol,direction:p.direction,oldStop,newStop:p.hardStop,peakUnrealizedPL:peakPnl.toString(),protectedPL:protectedPnl.toString(),riskCash:riskCash.toString(),peakR:peakR.toString()})
-   }
-  }
-
-  const markedEquity=new Decimal(this.state.noMacroEarlyExitExperiment.balance).plus(currentPnl)
-  this.noMacroEarlyExitRisk.recordEquity(markedEquity.toString())
-  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_POSITION_MARK',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,hardStop:p.hardStop,riskCash:riskCash.toString(),currentR:currentR.toString(),peakR:peakR.toString(),ageHours,unrealizedPL:currentPnl.toString(),peakUnrealizedPL:peakPnl.toString(),markedEquity:markedEquity.toString()})
-
-  if(ageHours>=3&&peakR.lt('0.10')&&currentR.lte('-0.25')){
-   this.closeNoMacroEarlyExitPosition(exit,'WEAK_MOMENTUM_3H')
-   return
-  }
-
-  const stop=new Decimal(p.hardStop)
-  const hit=p.direction==='long'?exitDec.lte(stop):exitDec.gte(stop)
-  if(hit)this.closeNoMacroEarlyExitPosition(exit,p.trailingActive?'TRAILING_PROFIT':p.profitLockActive?'BREAK_EVEN_PROTECT':'HARD_STOP')
- }
-
- private closeNoMacroEarlyExitPosition(exit:string,reason:string){
-  const p=this.state.noMacroEarlyExitExperiment.position
-  if(!p)return
-  const pnl=this.pnlFor(p,exit)
-  const nextBalance=new Decimal(this.state.noMacroEarlyExitExperiment.balance).plus(pnl)
-  this.state.noMacroEarlyExitExperiment.balance=nextBalance.toString()
-  this.state.noMacroEarlyExitExperiment.realizedPL=new Decimal(this.state.noMacroEarlyExitExperiment.realizedPL).plus(pnl).toString()
-  this.state.noMacroEarlyExitExperiment.position=null
-  this.state.noMacroEarlyExitExperiment.closes++
-  if(pnl.gt(0))this.state.noMacroEarlyExitExperiment.wins++
-  else if(pnl.lt(0))this.state.noMacroEarlyExitExperiment.losses++
-  this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,exit,reason,pnl:pnl.toString(),balance:nextBalance.toString()}
-  this.recordStrategyResult('NO_MACRO_EARLY_EXIT_3H',pnl)
-  this.noMacroEarlyExitRisk.recordEquity(nextBalance.toString())
-  this.save()
-  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_PAPER_CLOSE',symbol:p.symbol,direction:p.direction,entry:p.entry,exit,units:p.units,pnl:pnl.toString(),balance:nextBalance.toString(),reason,openedAt:p.openedAt})
- }
-
- private async maybeOpenNoMacroEarlyExit(symbol:string,signal:ReturnType<typeof evaluateNoMacro>,q:any){
-  if(signal.decision==='WAIT'||this.state.noMacroEarlyExitExperiment.position||this.noMacroEarlyExitRisk.locked())return
-  if(!['EUR_USD','GBP_USD'].includes(symbol)){
-   logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_SIGNAL_SKIPPED',symbol,side:signal.decision,reason:'Cross-currency P/L conversion not yet enabled',signal})
-   return
-  }
-  const direction:Direction=signal.decision==='LONG'?'long':'short'
-  const fill=direction==='long'?q.ask:q.bid
-  const plan=this.noMacroEarlyExitRisk.plan(symbol,direction,fill,this.state.noMacroEarlyExitExperiment.balance,signal.reasons)
-  const account=await this.broker.account()
-  const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
-  this.state.noMacroEarlyExitExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,initialRiskCash:plan.riskCash,openedAt:new Date().toISOString(),reasons:plan.reasons,...margin}
-  this.state.noMacroEarlyExitExperiment.opens++
-  this.state.noMacroEarlyExitExperiment.lastAction={at:new Date().toISOString(),type:'NO_MACRO_EARLY_EXIT_PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,reasons:plan.reasons}
-  this.noMacroEarlyExitRisk.recordEquity(this.state.noMacroEarlyExitExperiment.balance)
-  this.save()
-  logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,...margin,reasons:plan.reasons,rule:{minAgeHours:3,maxPeakR:'0.10',currentRAtOrBelow:'-0.25'},simulatedOnly:true})
- }
-
- private async captureFimatheMarket(symbol:string){
-  const now=new Date()
-  const minute=now.getUTCMinutes()
-  const hour=now.getUTCHours()
-  const due:Array<'M1'|'M5'|'M15'|'D'|'W'>=['M1']
-  if(minute%5<=1)due.push('M5')
-  if(minute%15<=1)due.push('M15')
-  if(minute===0)due.push('D')
-  if(minute===0&&hour%6===0)due.push('W')
-
-  for(const timeframe of due){
-   try{
-    const candles=await this.broker.candles(symbol,timeframe,4)
-    const key=`${symbol}:${timeframe}`
-    const lastSeen=this.state.fimatheLastCandle[key]||''
-    const unseen=candles.filter((c:{time:string})=>c.time>lastSeen)
-    for(const candle of unseen){
-     logFimatheMarket({
-      event:'FIMATHE_RAW_CANDLE',
-      symbol,
-      timeframe,
-      candle,
-      framework:{
-       status:'SHADOW_RESEARCH',
-       automatedEntry:false,
-       sourceSupportedConcepts:['zona neutra','canal de referencia','linha de 50%','nivel 1','nivel 2','stop fora da caixinha'],
-       note:'Raw OHLCV is preserved so finalized Fimathe rules can be replayed later without inventing missing channel math.'
-      }
-     })
-     this.state.fimatheLastCandle[key]=candle.time
-    }
-   }catch(e){
-    logFimatheMarket({event:'FIMATHE_CAPTURE_ERROR',symbol,timeframe,error:e instanceof Error?e.message:String(e)})
-   }
-  }
- }
-
  private async processSymbol(symbol:string){
   const [m5,m10,q]=await Promise.all([
    this.broker.candles(symbol,'M5',60),
@@ -718,33 +476,27 @@ export class ResearchSimulator{
    this.broker.quote(symbol)
   ])
   const last=m5.at(-1)
-  if(!last)return
-  if(this.state.lastCandle[symbol]===last.time)return
-
+  if(!last||this.state.lastCandle[symbol]===last.time)return
   this.state.lastCandle[symbol]=last.time
   const context=strategyContext(m5,m10)
+  // The evaluate() gate and candidate matching below are the ORIGINAL Shadow 3/4 logic.
   const signal=evaluate(context)
-  const noMacroSignal=evaluateNoMacro(context)
   const candidate=analyzeCandidate(context)
-  this.state.decisions++
-  this.state.lastDecision={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
-  if(signal.decision!=='WAIT'){
-   this.state.signals++
-   this.state.lastSignal={at:new Date().toISOString(),symbol,candleTime:last.time,signal,context,quote:q}
-  }
   if(signal.decision==='WAIT'&&candidate.side){
-   const shadow={at:new Date().toISOString(),event:'SHADOW_CANDIDATE',symbol,candleTime:last.time,side:candidate.side,matched:candidate.matched,total:candidate.total,missing:candidate.missing,matchedConditions:candidate.matchedConditions,context,quote:q,simulatedOnly:true,executed:false}
+   const shadow={at:new Date().toISOString(),event:'SHADOW_CANDIDATE',symbol,candleTime:last.time,
+    side:candidate.side,matched:candidate.matched,total:candidate.total,missing:candidate.missing,
+    matchedConditions:candidate.matchedConditions,context,quote:q,simulatedOnly:true,executed:false}
    this.state.shadowCandidates++
    this.state.lastShadowCandidate=shadow
    logShadowCandidate(shadow)
-   logSimulator(shadow)
-
    const currentShadow=this.state.shadowExperiment.position
    if(currentShadow&&currentShadow.symbol===symbol){
-    const opposite=(currentShadow.direction==='long'&&candidate.side==='SHORT')||(currentShadow.direction==='short'&&candidate.side==='LONG')
+    const opposite=(currentShadow.direction==='long'&&candidate.side==='SHORT')||
+     (currentShadow.direction==='short'&&candidate.side==='LONG')
     if(opposite){
      if(q.symbol!==currentShadow.symbol){
-      logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:currentShadow.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch on opposite candidate'})
+      logShadowTrade({event:'SHADOW_QUOTE_REJECTED',positionSymbol:currentShadow.symbol,quoteSymbol:q.symbol,
+       reason:'Symbol mismatch on opposite candidate'})
      }else{
       const exit=currentShadow.direction==='long'?q.bid:q.ask
       await this.closeShadowPosition(exit,'OPPOSITE_3_OF_4')
@@ -753,100 +505,25 @@ export class ResearchSimulator{
    }
    await this.maybeOpenShadow(symbol,candidate,q)
   }
-
-  const currentNoMacroEarly=this.state.noMacroEarlyExitExperiment.position
-  if(currentNoMacroEarly&&currentNoMacroEarly.symbol===symbol&&noMacroSignal.decision!=='WAIT'){
-   const opposite=(currentNoMacroEarly.direction==='long'&&noMacroSignal.decision==='SHORT')||(currentNoMacroEarly.direction==='short'&&noMacroSignal.decision==='LONG')
-   if(opposite){
-    if(q.symbol!==currentNoMacroEarly.symbol){
-     logNoMacroEarlyExitTrade({event:'NO_MACRO_EARLY_EXIT_QUOTE_REJECTED',positionSymbol:currentNoMacroEarly.symbol,quoteSymbol:q.symbol,reason:'Symbol mismatch on opposite no-macro signal'})
-    }else{
-     const exit=currentNoMacroEarly.direction==='long'?q.bid:q.ask
-     this.closeNoMacroEarlyExitPosition(exit,'OPPOSITE_NO_MACRO')
-    }
-   }
-  }
-  await this.maybeOpenNoMacroEarlyExit(symbol,noMacroSignal,q)
-
-  const spreadPct=this.simRisk.spreadPct(q.bid,q.ask).toString()
-  const baseEvent={
-   event:'CANDLE_DECISION',
-   symbol,
-   candleTime:last.time,
-   quote:q,
-   indicators:context,
-   signal,
-   noMacroSignal,
-   candidate,
-   spreadPct,
-   simulatedBalance:this.state.balance,
-   riskLocked:this.simRisk.locked(),
-   fimathe:{
-    automation:false,
-    status:'OBSERVATION_ONLY',
-    knownConcepts:['zona neutra','canal de referencia','linha de 50%','stop fora da caixinha'],
-    note:'Exact channel construction is not automated until the source rules are sufficiently deterministic.'
-   }
-  }
-  logSimulator(baseEvent)
-
-  const current=this.state.position
-  if(current&&current.symbol===symbol&&signal.decision!=='WAIT'){
-   const opposite=(current.direction==='long'&&signal.decision==='SHORT')||(current.direction==='short'&&signal.decision==='LONG')
-   if(opposite){
-    const exit=current.direction==='long'?q.bid:q.ask
-    this.closePosition(exit,'OPPOSITE_SIGNAL')
-   }
-  }
-
-  if(this.state.position||signal.decision==='WAIT'||this.simRisk.locked())return
-
-  // Exact USD P/L sizing is currently enabled only for USD-quoted majors.
-  if(!['EUR_USD','GBP_USD'].includes(symbol)){
-   logSimulator({event:'SIGNAL_SKIPPED',symbol,reason:'Cross-currency P/L conversion not yet enabled',signal})
-   return
-  }
-
-  const direction:Direction=signal.decision==='LONG'?'long':'short'
-  const fill=direction==='long'?q.ask:q.bid
-  const plan=this.simRisk.plan(symbol,direction,fill,this.state.balance,signal.reasons)
-  const account=await this.broker.account()
-  const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
-  const ai=await critique({mode:'SIMULATOR',symbol,signal,plan,margin,context}).catch(()=>({decision:'NEUTRAL',reason:'Ollama unavailable'})) as any
-  logSimulator({event:'SIGNAL_REVIEW',symbol,signal,plan,ai})
-  if(String(ai?.decision||'').toUpperCase()==='VETO'){
-   logSimulator({event:'SIGNAL_SKIPPED',symbol,reason:'OLLAMA_VETO',ai})
-   return
-  }
-
-  this.state.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,openedAt:new Date().toISOString(),reasons:plan.reasons,...margin}
-  this.state.lastAction={at:new Date().toISOString(),type:'PAPER_OPEN',symbol,direction,entry:fill,hardStop:plan.hardStop,units:plan.units,riskCash:plan.riskCash,...margin,reasons:plan.reasons,ai}
-  this.simRisk.recordEquity(this.state.balance)
-  this.save()
-  logTrade({event:'PAPER_OPEN',symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,riskCash:plan.riskCash,...margin,reasons:plan.reasons,ai})
  }
 
  async tick(){
   if(this.busy)return
   this.busy=true
   try{
-   if(Date.now()>=new Date(env.SIMULATOR_END_AT).getTime()){this.stop();return}
    await this.ensureBalance()
    if(++this.memoryTick%60===0)await this.shadowMemoryResearch.refresh().catch(()=>{})
    await this.reconcilePendingShadowMirrorClose()
-   await this.manageOpen()
    await this.manageShadowOpen()
-   await this.manageNoMacroEarlyExitOpen()
-   for(const symbol of SIMULATOR_PAIRS){
-    try{await this.captureFimatheMarket(symbol);await this.processSymbol(symbol)}
-    catch(e){logSimulator({event:'SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
-     await this.fimathePaper.process(symbol)
-     await this.ollamaPaper.process(symbol)
-     await this.shadowMemoryResearch.process(symbol)
+   for(const symbol of SHADOW_OANDA_PAIRS){
+    try{await this.processSymbol(symbol)}
+    catch(e){logShadowTrade({event:'SHADOW_SYMBOL_ERROR',symbol,error:e instanceof Error?e.message:String(e)})}
+    await this.ollamaPaper.process(symbol)
+    await this.shadowMemoryResearch.process(symbol)
    }
    this.save()
   }catch(e){
-   logSimulator({event:'SIMULATOR_ERROR',error:e instanceof Error?e.message:String(e)})
+   logShadowTrade({event:'SHADOW_ENGINE_ERROR',error:e instanceof Error?e.message:String(e)})
   }finally{this.busy=false}
  }
 }
