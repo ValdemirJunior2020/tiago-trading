@@ -1,7 +1,7 @@
 import express from'express'
 import cors from'cors'
 import helmet from'helmet'
-import{OandaReadOnly}from'./broker/OandaReadOnly.js'
+import{OandaReadOnly,oandaAuthStatus}from'./broker/OandaReadOnly.js'
 import{RiskManager}from'./risk/RiskManager.js'
 import{ollamaHealth,critique}from'./ollama.js'
 import{env,BROKER_MODE,OANDA_DEMO_MIRROR_ENABLED}from'./config.js'
@@ -26,6 +26,7 @@ app.get('/health',async(_q,res)=>{
   res.json({
     status:account?'ok':'degraded',
     broker:account,
+    brokerAuth:oandaAuthStatus(),
     ollama,
     safety:{hardStop:'0.8%',maxSlippage:'0.1%',kill24h:'3.0%',riskPerTrade:'0.25%',drawdownPersistence:true},
     mode:OANDA_DEMO_MIRROR_ENABLED?'OANDA_PRACTICE_MIRROR':'READ_ONLY_TRADE_PLANNER',
