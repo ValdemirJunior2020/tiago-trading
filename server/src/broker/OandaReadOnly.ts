@@ -1,6 +1,26 @@
 import{Decimal}from'decimal.js'
 import type{AccountState,BrokerQuote}from'../types.js'
 import{env}from'../config.js'
+export type OandaAuthStatus={
+ state:'UNKNOWN'|'OK'|'AUTH_FAILED'|'RECOVERED'
+ failures401:number;last401At:string|null;lastSuccessAt:string|null
+ lastErrorCode:string|null;actionRequired:boolean
+}
+const authState:OandaAuthStatus={state:'UNKNOWN',failures401:0,last401At:null,lastSuccessAt:null,lastErrorCode:null,actionRequired:false}
+export function oandaAuthStatus():OandaAuthStatus{return {...authState}}
+function recordReadAuthStatus(status:number){
+ const now=new Date().toISOString()
+ if(status===401){
+  authState.failures401++;authState.last401At=now
+  authState.lastErrorCode='OANDA_HTTP_401'
+  authState.state='AUTH_FAILED';authState.actionRequired=true
+ }else if(status>=200&&status<300){
+  authState.lastSuccessAt=now
+  if(authState.state==='AUTH_FAILED')authState.state='RECOVERED'
+  else if(authState.state==='UNKNOWN')authState.state='OK'
+  authState.lastErrorCode=null;authState.actionRequired=false
+ }
+}
 export class OandaReadOnly{
  private headers(){if(!env.OANDA_API_TOKEN||!env.OANDA_ACCOUNT_ID)throw new Error('Broker credentials not configured');return{Authorization:`Bearer ${env.OANDA_API_TOKEN}`}}
  private assertPracticeWrite(){
@@ -28,8 +48,10 @@ export class OandaReadOnly{
   for(let attempt=1;attempt<=maxAttempts;attempt++){
    try{
     const r=await fetch(`${env.OANDA_REST_BASE_URL}${path}`,{headers:this.headers()})
+    recordReadAuthStatus(r.status)
     const b:any=await r.json().catch(()=>({}))
     if(r.ok)return b
+    if(r.status===401)throw new Error('OANDA_HTTP_401: Practice API authorization denied; verify the account ID and token in the local .env. No automatic token changes or write retries.')
     if(!retryable.has(r.status)||attempt===maxAttempts)throw new Error(`Broker HTTP ${r.status}`)
     lastError=new Error(`Broker HTTP ${r.status}`)
    }catch(e){
