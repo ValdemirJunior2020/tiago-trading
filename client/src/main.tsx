@@ -160,6 +160,17 @@ function App(){
         </div>
       </header>
 
+      {health?.brokerAuth?.failures401>0&&<section role="status" aria-live="polite"
+        style={{margin:'12px 0',padding:'12px 16px',borderRadius:12,border:'1px solid rgba(251,191,36,.5)',background:'rgba(251,191,36,.08)'}}>
+        <b>{health?.brokerAuth?.actionRequired
+          ?(lang==='pt'?'⚠️ OANDA rejeitou a chave/API (401)':'⚠️ OANDA API authorization rejected (401)')
+          :(lang==='pt'?'✓ OANDA reconectada após erros 401':'✓ OANDA recovered after HTTP 401 errors')}</b>
+        <p style={{margin:'5px 0',fontSize:13}}>
+         {lang==='pt'
+           ?'401 observados: '+health.brokerAuth.failures401+'. Último: '+(health.brokerAuth.last401At||'—')+'. Se persistir, verifique privadamente o token Practice e o ID da conta no .env. Nunca envie o token no chat.'
+           :'401 errors: '+health.brokerAuth.failures401+'. Last: '+(health.brokerAuth.last401At||'—')+'. If this persists, privately verify your Practice token and account ID in .env. Never share your token.'}
+        </p>
+      </section>}
       <section className="status-strip">
         <div><span className={health?.broker?'signal good':'signal bad'}>{health?.broker?<Wifi size={15}/>:<WifiOff size={15}/>}</span><small>{x.broker}</small><b>{health?.broker?x.online:x.offline}</b></div>
         <div><span className={health?.ollama?'signal good':'signal bad'}><BrainCircuit size={15}/></span><small>{x.ollama}</small><b>{health?.ollama?x.online:x.offline}</b></div>
