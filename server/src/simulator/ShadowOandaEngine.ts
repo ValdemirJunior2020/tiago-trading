@@ -9,6 +9,7 @@ import{evaluate,analyzeCandidate}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{env,SHADOW_OANDA_PAIRS,OANDA_DEMO_MIRROR_ENABLED}from'../config.js'
 import{logShadowCandidate,logShadowTrade}from'./logger.js'
+import{cappedShadowPlanningCapital,shadowLossCooldownUntil,shadowCooldownRemainingMs,SHADOW_MAX_NEW_TRADE_RISK_USD}from'./ShadowProtection.js'
 import type{Direction}from'../types.js'
 
 type Position={
@@ -66,6 +67,7 @@ type State={
   pendingMirrorCloseTradeId:string|null
  }
  strategyPerformance:Record<StrategyName,StrategyStats>
+ shadowProtection?:{lastLossAt:string|null;cooldownUntil:string|null}
 }
 
 const here=dirname(fileURLToPath(import.meta.url))
@@ -75,7 +77,8 @@ const SHADOW_TRADE_LOG_PATH=resolve(here,'../../../logs/shadow-paper/trades.json
 export class ShadowOandaEngine{
  private state:State={lastCandle:{},shadowCandidates:0,lastShadowCandidate:null,
   shadowExperiment:{balance:'0',realizedPL:'0',position:null,opens:0,closes:0,wins:0,losses:0,lastAction:null,pendingMirrorCloseTradeId:null},
-  strategyPerformance:{SHADOW_3_OF_4:blankStrategyStats()}}
+  strategyPerformance:{SHADOW_3_OF_4:blankStrategyStats()},
+  shadowProtection:{lastLossAt:null,cooldownUntil:null}}
  private timer:NodeJS.Timeout|null=null
  private busy=false
  private shadowRisk=new RiskManager(SHADOW_RISK_PATH)
@@ -94,6 +97,8 @@ export class ShadowOandaEngine{
    this.state.lastCandle=saved.lastCandle&&typeof saved.lastCandle==='object'?saved.lastCandle:{}
    this.state.shadowCandidates=Number(saved.shadowCandidates||0)
    this.state.lastShadowCandidate=saved.lastShadowCandidate??null
+   this.state.shadowProtection={lastLossAt:typeof saved.shadowProtection?.lastLossAt==='string'?saved.shadowProtection.lastLossAt:null,
+    cooldownUntil:typeof saved.shadowProtection?.cooldownUntil==='string'?saved.shadowProtection.cooldownUntil:null}
    this.state.shadowExperiment={...this.state.shadowExperiment,...(saved.shadowExperiment||{})}
    this.state.strategyPerformance={
     SHADOW_3_OF_4:{...blankStrategyStats(),...(saved.strategyPerformance?.SHADOW_3_OF_4||{})}
@@ -387,6 +392,12 @@ export class ShadowOandaEngine{
   const pnl=this.pnlFor(p,exit)
   const nextBalance=new Decimal(this.state.shadowExperiment.balance).plus(pnl)
   const won=pnl.gt(0)
+  const closedAt=new Date().toISOString()
+  const cooldownUntil=shadowLossCooldownUntil(closedAt,pnl.toString())
+  if(cooldownUntil){
+   this.state.shadowProtection={lastLossAt:closedAt,cooldownUntil}
+   logShadowTrade({event:'SHADOW_LOSS_COOLDOWN_ARMED',closedAt,cooldownUntil,localPnl:pnl.toString(),reason:'Conservative pause based on Shadow local close; confirm official P/L separately with OANDA'})
+  }
   this.state.shadowExperiment.balance=nextBalance.toString()
   this.state.shadowExperiment.realizedPL=new Decimal(this.state.shadowExperiment.realizedPL).plus(pnl).toString()
   this.state.shadowExperiment.position=null
@@ -424,6 +435,15 @@ export class ShadowOandaEngine{
 
  private async maybeOpenShadow(symbol:string,candidate:ReturnType<typeof analyzeCandidate>,q:any){
   if(!candidate.side||this.state.shadowExperiment.position||this.shadowRisk.locked())return
+  if(this.state.shadowExperiment.pendingMirrorCloseTradeId){
+   logShadowTrade({event:'SHADOW_ENTRY_BLOCKED',symbol,reason:'PREVIOUS_BROKER_CLOSE_UNCONFIRMED',pendingTradeId:this.state.shadowExperiment.pendingMirrorCloseTradeId})
+   return
+  }
+  const remainingMs=shadowCooldownRemainingMs(this.state.shadowProtection?.cooldownUntil)
+  if(remainingMs>0){
+   logShadowTrade({event:'SHADOW_ENTRY_BLOCKED',symbol,reason:'POST_LOSS_COOLDOWN',remainingSeconds:Math.ceil(remainingMs/1000),cooldownUntil:this.state.shadowProtection?.cooldownUntil})
+   return
+  }
   if(!['EUR_USD','GBP_USD'].includes(symbol)){
    logShadowTrade({event:'SHADOW_SIGNAL_SKIPPED',symbol,side:candidate.side,reason:'Cross-currency P/L conversion not yet enabled',candidate})
    return
@@ -431,7 +451,8 @@ export class ShadowOandaEngine{
   const direction:Direction=candidate.side==='LONG'?'long':'short'
   const fill=direction==='long'?q.ask:q.bid
   const reasons=[...candidate.matchedConditions,`missing: ${candidate.missing.join(', ')}`]
-  const plan=this.shadowRisk.plan(symbol,direction,fill,this.state.shadowExperiment.balance,reasons)
+  const plan=this.shadowRisk.plan(symbol,direction,fill,cappedShadowPlanningCapital(this.state.shadowExperiment.balance),reasons)
+  logShadowTrade({event:'SHADOW_NEW_ENTRY_RISK_CAP',symbol,maxPlannedRiskUsd:SHADOW_MAX_NEW_TRADE_RISK_USD,plannedRiskUsd:plan.riskCash,units:plan.units})
   const account=await this.broker.account()
   const margin=await this.broker.marginMetrics(symbol,fill,plan.units,account.marginAvailable)
   this.state.shadowExperiment.position={symbol,direction,units:plan.units,entry:fill,hardStop:plan.hardStop,originalHardStop:plan.hardStop,initialRiskCash:plan.riskCash,openedAt:new Date().toISOString(),reasons,...margin}
