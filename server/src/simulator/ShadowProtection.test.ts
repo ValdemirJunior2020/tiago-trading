@@ -1,5 +1,5 @@
 import{describe,it,expect}from'vitest'
-import{cappedShadowPlanningCapital,shadowLossCooldownUntil,shadowCooldownRemainingMs}from'./ShadowProtection.js'
+import{cappedShadowPlanningCapital,shadowLossCooldownUntil,shadowCloseCooldownUntil,shadowCooldownRemainingMs}from'./ShadowProtection.js'
 import{RiskManager}from'../risk/RiskManager.js'
 
 describe('temporary Shadow-only loss guard',()=>{
@@ -19,6 +19,16 @@ describe('temporary Shadow-only loss guard',()=>{
   expect(until).toBe('2026-10-14T11:00:00.000Z')
   expect(shadowCooldownRemainingMs(until,Date.parse('2026-10-14T10:59:00Z'))).toBe(60000)
   expect(shadowCooldownRemainingMs(until,Date.parse('2026-10-14T11:01:00Z'))).toBe(0)
+ })
+ it('pauses Shadow new entries for 15 minutes after a winning close',()=>{
+  const until=shadowCloseCooldownUntil('2026-10-17T14:00:00Z','13.85')
+  expect(until).toBe('2026-10-17T14:15:00.000Z')
+  expect(shadowCooldownRemainingMs(until,Date.parse('2026-10-17T14:10:00Z'))).toBe(300000)
+  expect(shadowCooldownRemainingMs(until,Date.parse('2026-10-17T14:15:00Z'))).toBe(0)
+ })
+ it('retains 60-minute loss pause and no pause after zero P/L',()=>{
+  expect(shadowCloseCooldownUntil('2026-10-17T14:00:00Z','-17.75')).toBe('2026-10-17T15:00:00.000Z')
+  expect(shadowCloseCooldownUntil('2026-10-17T14:00:00Z','0')).toBeNull()
  })
  it('does not trigger a post-loss cooldown for wins or flat positions',()=>{
   expect(shadowLossCooldownUntil('2026-10-14T10:00:00Z','5.00')).toBeNull()
