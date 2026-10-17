@@ -9,7 +9,7 @@ import{evaluate,analyzeCandidate}from'../strategy.js'
 import{RiskManager}from'../risk/RiskManager.js'
 import{env,SHADOW_OANDA_PAIRS,OANDA_DEMO_MIRROR_ENABLED}from'../config.js'
 import{logShadowCandidate,logShadowTrade}from'./logger.js'
-import{cappedShadowPlanningCapital,shadowLossCooldownUntil,shadowCooldownRemainingMs,SHADOW_MAX_NEW_TRADE_RISK_USD}from'./ShadowProtection.js'
+import{cappedShadowPlanningCapital,shadowCloseCooldownUntil,shadowCooldownRemainingMs,SHADOW_MAX_NEW_TRADE_RISK_USD}from'./ShadowProtection.js'
 import type{Direction}from'../types.js'
 
 type Position={
@@ -393,10 +393,10 @@ export class ShadowOandaEngine{
   const nextBalance=new Decimal(this.state.shadowExperiment.balance).plus(pnl)
   const won=pnl.gt(0)
   const closedAt=new Date().toISOString()
-  const cooldownUntil=shadowLossCooldownUntil(closedAt,pnl.toString())
+  const cooldownUntil=shadowCloseCooldownUntil(closedAt,pnl.toString())
   if(cooldownUntil){
-   this.state.shadowProtection={lastLossAt:closedAt,cooldownUntil}
-   logShadowTrade({event:'SHADOW_LOSS_COOLDOWN_ARMED',closedAt,cooldownUntil,localPnl:pnl.toString(),reason:'Conservative pause based on Shadow local close; confirm official P/L separately with OANDA'})
+   this.state.shadowProtection={lastLossAt:pnl.lt(0)?closedAt:(this.state.shadowProtection?.lastLossAt??null),cooldownUntil}
+   logShadowTrade({event:pnl.gt(0)?'SHADOW_PROFIT_COOLDOWN_ARMED':'SHADOW_LOSS_COOLDOWN_ARMED',closedAt,cooldownUntil,localPnl:pnl.toString(),reason:'Conservative pause based on Shadow local close; confirm official P/L separately with OANDA'})
   }
   this.state.shadowExperiment.balance=nextBalance.toString()
   this.state.shadowExperiment.realizedPL=new Decimal(this.state.shadowExperiment.realizedPL).plus(pnl).toString()
@@ -441,7 +441,7 @@ export class ShadowOandaEngine{
   }
   const remainingMs=shadowCooldownRemainingMs(this.state.shadowProtection?.cooldownUntil)
   if(remainingMs>0){
-   logShadowTrade({event:'SHADOW_ENTRY_BLOCKED',symbol,reason:'POST_LOSS_COOLDOWN',remainingSeconds:Math.ceil(remainingMs/1000),cooldownUntil:this.state.shadowProtection?.cooldownUntil})
+   logShadowTrade({event:'SHADOW_ENTRY_BLOCKED',symbol,reason:'POST_CLOSE_COOLDOWN',remainingSeconds:Math.ceil(remainingMs/1000),cooldownUntil:this.state.shadowProtection?.cooldownUntil})
    return
   }
   if(!['EUR_USD','GBP_USD'].includes(symbol)){
